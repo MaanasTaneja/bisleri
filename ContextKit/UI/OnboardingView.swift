@@ -1,29 +1,221 @@
+import AppKit
 import SwiftUI
 
+private let customFoldersKey = "ck.customAllowedFolders"
+private let serverURL = "http://127.0.0.1:3847"
+private let sseURL = "http://127.0.0.1:3847/sse"
+
 struct OnboardingView: View {
-    private let defaultFolders = ["Documents", "Desktop", "Downloads"]
+    @AppStorage(customFoldersKey) private var customFolderPaths: String = ""
+    @State private var copiedClaudeSnippet = false
+    @State private var copiedSSEURL = false
+
+    private let defaultFolderNames = ["Documents", "Desktop", "Downloads"]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("ContextKit").font(.title)
-            Text("Click the brain icon in the menu bar to capture, search, and inspect your memory.")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                header
+                Divider()
+                statusSection
+                Divider()
+                foldersSection
+                Divider()
+                connectSection
+            }
+            .padding(28)
+            .frame(width: 560)
+        }
+        .frame(width: 560, height: 720)
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("ContextKit").font(.title.weight(.semibold))
+            Text("Local-first memory you can share with Claude and ChatGPT.")
+                .font(.callout)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private var statusSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Local server").font(.headline)
+            HStack(spacing: 8) {
+                Image(systemName: "circle.fill").foregroundStyle(.green).font(.caption)
+                Text(serverURL).font(.callout.monospaced())
+            }
+            HStack(spacing: 8) {
+                Image(systemName: "antenna.radiowaves.left.and.right")
+                    .foregroundStyle(.secondary)
+                Text("MCP SSE:").foregroundStyle(.secondary)
+                Text(sseURL).font(.callout.monospaced()).textSelection(.enabled)
+            }
+            .font(.callout)
+        }
+    }
+
+    private var foldersSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Allowed folders").font(.headline)
+                Spacer()
+                Button {
+                    pickFolder()
+                } label: {
+                    Label("Add folder", systemImage: "plus.circle")
+                }
+            }
+
+            Text("ContextKit can only index files inside these folders.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(defaultFolderNames, id: \.self) { name in
+                    HStack {
+                        Image(systemName: "folder.fill").foregroundStyle(.tint)
+                        Text(name)
+                        Spacer()
+                        Text("default")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.quaternary, in: Capsule())
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                ForEach(customFolders, id: \.self) { path in
+                    HStack {
+                        Image(systemName: "folder").foregroundStyle(.secondary)
+                        Text((path as NSString).abbreviatingWithTildeInPath)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer()
+                        Button {
+                            removeFolder(path)
+                        } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                if customFolders.isEmpty {
+                    Text("No custom folders added yet.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .padding(.top, 4)
+                }
+            }
+        }
+    }
+
+    private var connectSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Connect your apps").font(.headline)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Claude Desktop").font(.subheadline.weight(.semibold))
+                Text("Add this to \(claudeConfigPath):")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(claudeConfigSnippet)
+                    .font(.caption.monospaced())
+                    .textSelection(.enabled)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                Button {
+                    copy(claudeConfigSnippet)
+                    copiedClaudeSnippet = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copiedClaudeSnippet = false }
+                } label: {
+                    Label(copiedClaudeSnippet ? "Copied" : "Copy snippet", systemImage: copiedClaudeSnippet ? "checkmark" : "doc.on.doc")
+                }
+            }
 
             Divider()
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Default folders").font(.subheadline).foregroundStyle(.secondary)
-                ForEach(defaultFolders, id: \.self) { name in
-                    Label(name, systemImage: "folder")
-                        .font(.callout)
+                Text("ChatGPT Desktop").font(.subheadline.weight(.semibold))
+                Text("Settings → Connectors → Add MCP server, then paste this URL:")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Text(sseURL)
+                        .font(.callout.monospaced())
+                        .textSelection(.enabled)
+                    Spacer()
+                    Button {
+                        copy(sseURL)
+                        copiedSSEURL = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copiedSSEURL = false }
+                    } label: {
+                        Image(systemName: copiedSSEURL ? "checkmark" : "doc.on.doc")
+                    }
+                    .buttonStyle(.borderless)
                 }
-                Text("Custom folder permissions are coming soon.")
+                .padding(10)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+
+                Text("Note: ChatGPT may require an HTTPS public URL (e.g. via an OpenAI Secure MCP Tunnel) — localhost isn't always accepted.")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
-                    .padding(.top, 4)
             }
         }
-        .padding(24)
-        .frame(width: 460)
+    }
+
+    private var customFolders: [String] {
+        customFolderPaths
+            .split(separator: "\n")
+            .map(String.init)
+            .filter { !$0.isEmpty }
+    }
+
+    private func pickFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Allow"
+        if panel.runModal() == .OK, let url = panel.url {
+            let path = url.path
+            var folders = customFolders
+            if !folders.contains(path) {
+                folders.append(path)
+                customFolderPaths = folders.joined(separator: "\n")
+            }
+        }
+    }
+
+    private func removeFolder(_ path: String) {
+        customFolderPaths = customFolders.filter { $0 != path }.joined(separator: "\n")
+    }
+
+    private func copy(_ text: String) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(text, forType: .string)
+    }
+
+    private var claudeConfigPath: String {
+        "~/Library/Application Support/Claude/claude_desktop_config.json"
+    }
+
+    private var claudeConfigSnippet: String {
+        """
+        {
+          "mcpServers": {
+            "contextkit": {
+              "command": "npx",
+              "args": ["-y", "mcp-remote", "\(sseURL)"]
+            }
+          }
+        }
+        """
     }
 }

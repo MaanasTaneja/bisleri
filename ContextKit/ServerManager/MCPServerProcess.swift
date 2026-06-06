@@ -85,9 +85,17 @@ final class MCPServerProcess {
 
     private static func defaultAllowedFolders() -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser
-        return ["Documents", "Desktop", "Downloads"]
-            .map { home.appendingPathComponent($0).path }
-            .joined(separator: ":")
+        var paths = ["Documents", "Desktop", "Downloads"].map { home.appendingPathComponent($0).path }
+
+        let stored = UserDefaults.standard.string(forKey: "ck.customAllowedFolders") ?? ""
+        let custom = stored
+            .split(separator: "\n")
+            .map(String.init)
+            .filter { !$0.isEmpty }
+        for path in custom where !paths.contains(path) {
+            paths.append(path)
+        }
+        return paths.joined(separator: ":")
     }
 
     private static func resolvePython(repoRoot: URL) -> (executable: String, leadingArgs: [String]) {
