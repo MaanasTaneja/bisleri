@@ -4,9 +4,10 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
-    private let appState = AppState()
+    private var appState: AppState!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        appState = AppState()
         NSApp.setActivationPolicy(.accessory)
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "brain.head.profile", accessibilityDescription: "ContextKit")
