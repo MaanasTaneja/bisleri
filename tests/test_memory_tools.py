@@ -11,7 +11,7 @@ from mcp_server.auth import AuthError, TokenAuth
 from mcp_server.config import COLLECTIONS, ServerConfig
 from mcp_server.main import build_tools, create_app
 from mcp_server.memory.chroma_store import ChromaMemoryStore, create_store
-from mcp_server.ocr import OCRConfigurationError, OCRProcessor, OCRResult
+from mcp_server.ocr import OCRConfigurationError, OCRProcessor, OCR_RESPONSE_SCHEMA, OCRResult
 
 
 PNG_1X1 = base64.b64decode(
@@ -216,6 +216,31 @@ def test_ocr_parser_accepts_fenced_json():
 
     assert result.text == "Slack launch note"
     assert result.collection == "messages"
+
+
+def test_ocr_payload_uses_strict_structured_output_schema():
+    payload = OCRProcessor(api_key="test-key")._build_payload("abc123", "image/png")
+
+    assert payload["text"]["format"]["type"] == "json_schema"
+    assert payload["text"]["format"]["strict"] is True
+    assert payload["text"]["format"]["schema"] == OCR_RESPONSE_SCHEMA
+    assert payload["text"]["format"]["schema"]["properties"]["collection"]["enum"] == [
+        "messages",
+        "browser",
+        "filesystem",
+        "misc",
+    ]
+    user_content = payload["input"][1]["content"]
+    assert user_content[1]["type"] == "input_image"
+    assert user_content[1]["image_url"].startswith("data:image/png;base64,abc123")
+
+
+def test_ocr_parser_coerces_invalid_collection_to_misc():
+    result = OCRProcessor._parse_response(
+        {"output_text": '{"text":"Some terminal text","collection":"terminal","summary":"Terminal"}'}
+    )
+
+    assert result.collection == "misc"
 
 
 def test_ocr_parser_falls_back_to_misc_for_plain_text(caplog):
