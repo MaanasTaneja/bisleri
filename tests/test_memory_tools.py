@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from datetime import datetime, timezone
 import sys
 from types import SimpleNamespace
@@ -10,7 +11,12 @@ from mcp_server.auth import AuthError, TokenAuth
 from mcp_server.config import COLLECTIONS, ServerConfig
 from mcp_server.main import build_tools, create_app
 from mcp_server.memory.chroma_store import ChromaMemoryStore, create_store
-from mcp_server.ocr import OCRConfigurationError, OCRResult
+from mcp_server.ocr import OCRConfigurationError, OCRProcessor, OCRResult
+
+
+PNG_1X1 = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+)
 
 
 @pytest.fixture()
@@ -104,8 +110,8 @@ def test_ingest_screenshot_runs_python_ocr_and_routes_collection(monkeypatch, tm
     from fastapi.testclient import TestClient
 
     async def fake_process(self, image_base64: str, mime_type: str):
-        assert image_base64 == "aGVsbG8="
         assert mime_type == "image/png"
+        assert base64.b64decode(image_base64).startswith(b"\x89PNG")
         return OCRResult(
             text="Slack screenshot says launch review is Monday",
             collection="messages",
@@ -119,7 +125,11 @@ def test_ingest_screenshot_runs_python_ocr_and_routes_collection(monkeypatch, tm
     response = client.post(
         "/ingest_screenshot",
         headers={"Authorization": "Bearer http-token"},
-        json={"image_base64": "aGVsbG8=", "mime_type": "image/png", "metadata": {"source": "manual-test"}},
+        json={
+            "image_base64": base64.b64encode(PNG_1X1).decode("ascii"),
+            "mime_type": "image/png",
+            "metadata": {"source": "manual-test"},
+        },
     )
 
     assert response.status_code == 200
@@ -145,11 +155,52 @@ def test_ingest_screenshot_requires_openai_key(monkeypatch, tmp_path):
     response = client.post(
         "/ingest_screenshot",
         headers={"Authorization": "Bearer http-token"},
-        json={"image_base64": "aGVsbG8=", "mime_type": "image/png"},
+        json={"image_base64": base64.b64encode(PNG_1X1).decode("ascii"), "mime_type": "image/png"},
     )
 
     assert response.status_code == 503
     assert response.json()["detail"] == "OPENAI_API_KEY is not set"
+
+
+def test_ingest_screenshot_rejects_undecodable_image(tmp_path):
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    app = create_app(ServerConfig(home=tmp_path, token="http-token"))
+    client = TestClient(app)
+
+    response = client.post(
+        "/ingest_screenshot",
+        headers={"Authorization": "Bearer http-token"},
+        json={"image_base64": "aGVsbG8=", "mime_type": "image/png"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "image data could not be decoded"
+
+
+def test_ocr_parser_accepts_fenced_json():
+    result = OCRProcessor._parse_response(
+        {
+            "output_text": (
+                "```json\n"
+                '{"text":"Slack launch note","collection":"messages","summary":"Launch note"}'
+                "\n```"
+            )
+        }
+    )
+
+    assert result.text == "Slack launch note"
+    assert result.collection == "messages"
+
+
+def test_ocr_parser_falls_back_to_misc_for_plain_text(caplog):
+    with caplog.at_level("WARNING"):
+        result = OCRProcessor._parse_response({"output_text": "The screenshot shows a terminal error."})
+
+    assert result.collection == "misc"
+    assert result.text == "The screenshot shows a terminal error."
+    assert "OpenAI OCR response was not JSON" in caplog.text
 
 
 def test_chroma_store_creates_and_routes_required_collections(monkeypatch, tmp_path):

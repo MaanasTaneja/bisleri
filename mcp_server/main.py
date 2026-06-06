@@ -8,6 +8,7 @@ from typing import Any
 from mcp_server.access_log import AccessLogger
 from mcp_server.auth import AuthError, TokenAuth
 from mcp_server.config import ServerConfig
+from mcp_server.images import normalize_image_for_openai
 from mcp_server.memory.chroma_store import create_store
 from mcp_server.ocr import OCRConfigurationError, OCRProcessor, SUPPORTED_IMAGE_TYPES
 from mcp_server.tools import ContextKitTools
@@ -70,10 +71,15 @@ def create_app(config: ServerConfig):
             image_bytes = base64.b64decode(request.image_base64, validate=True)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail="image_base64 is not valid base64") from exc
-
-        screenshot_path = _write_screenshot(config, image_bytes, request.mime_type)
         try:
-            result = await OCRProcessor().process(request.image_base64, request.mime_type)
+            normalized = normalize_image_for_openai(image_bytes)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        normalized_base64 = base64.b64encode(normalized.data).decode("ascii")
+        screenshot_path = _write_screenshot(config, normalized.data, normalized.mime_type)
+        try:
+            result = await OCRProcessor().process(normalized_base64, normalized.base64_mime_type)
         except OCRConfigurationError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except ValueError as exc:

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
 from dataclasses import dataclass
 from typing import Any
 
 
 SUPPORTED_IMAGE_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif"}
+COLLECTIONS = {"filesystem", "messages", "browser", "misc"}
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -46,8 +50,8 @@ class OCRProcessor:
                             "type": "input_text",
                             "text": (
                                 "Extract all visible text from this screenshot. Then classify what type of content "
-                                "this is. Return only JSON with keys: text, collection, summary. Collection must be "
-                                "one of: messages, browser, filesystem, misc."
+                                "this is. Return only valid JSON with no markdown and keys: text, collection, summary. "
+                                "Collection must be one of: messages, browser, filesystem, misc."
                             ),
                         },
                         {
@@ -70,14 +74,30 @@ class OCRProcessor:
         if not raw_text:
             raise ValueError("OpenAI OCR response did not include output text")
         try:
-            parsed = json.loads(raw_text)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"OpenAI OCR response was not JSON: {raw_text[:200]}") from exc
+            parsed = json.loads(OCRProcessor._json_candidate(raw_text))
+        except json.JSONDecodeError:
+            logger.warning("OpenAI OCR response was not JSON; storing raw OCR text as misc")
+            return OCRResult(text=raw_text.strip(), collection="misc", summary=raw_text.strip()[:180])
+        collection = str(parsed.get("collection", "misc"))
+        if collection not in COLLECTIONS:
+            collection = "misc"
         return OCRResult(
             text=str(parsed.get("text", "")),
-            collection=str(parsed.get("collection", "misc")),
+            collection=collection,
             summary=str(parsed.get("summary", "")),
         )
+
+    @staticmethod
+    def _json_candidate(raw_text: str) -> str:
+        stripped = raw_text.strip()
+        fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", stripped, re.DOTALL)
+        if fence_match:
+            return fence_match.group(1)
+        first = stripped.find("{")
+        last = stripped.rfind("}")
+        if first != -1 and last > first:
+            return stripped[first : last + 1]
+        return stripped
 
     @staticmethod
     def _extract_output_text(payload: dict[str, Any]) -> str:
