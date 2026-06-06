@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from tempfile import TemporaryDirectory
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mcp_server.config import ServerConfig
 from mcp_server.main import build_tools
@@ -8,7 +12,7 @@ from mcp_server.main import build_tools
 
 def main() -> None:
     with TemporaryDirectory() as tmp:
-        config = ServerConfig(home=tmp, token="demo")
+        config = ServerConfig(home=Path(tmp), token="demo")
         tools = build_tools(config)
         tools.ingest(
             "Q3 lease agreement PDF is due Friday and lives in Downloads.",

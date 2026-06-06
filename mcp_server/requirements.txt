@@ -3,8 +3,8 @@ uvicorn[standard]>=0.30
 pydantic>=2.7
 pytest>=8.2
 httpx2>=0.28
+chromadb>=0.5
 
-# Optional for the production memory backend. The current implementation keeps a
-# SQLite fallback active so local tests do not need model downloads.
-chromadb>=0.5; platform_system != "Linux"
+# Optional local embedding backend for a later production switch from the
+# deterministic hash embedder to sentence-transformers/all-MiniLM-L6-v2.
 sentence-transformers>=3.0; platform_system != "Linux"

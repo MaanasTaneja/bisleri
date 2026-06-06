@@ -10,7 +10,7 @@ from mcp_server.tools import ContextKitTools
 
 def build_tools(config: ServerConfig) -> ContextKitTools:
     config.prepare()
-    store = create_store(config.db_path, config.use_chroma)
+    store = create_store(config.db_path, config.use_chroma, config.chroma_path)
     access_logger = AccessLogger(config.db_path)
     return ContextKitTools(config, store, access_logger)
 

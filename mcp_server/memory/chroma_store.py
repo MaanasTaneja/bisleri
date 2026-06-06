@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import uuid
 from dataclasses import dataclass
@@ -124,7 +125,132 @@ class SQLiteMemoryStore:
         return now - timedelta(hours=1)
 
 
-def create_store(db_path: Path, use_chroma: bool = False) -> SQLiteMemoryStore:
-    # ChromaDB can be introduced behind this factory without changing tool code.
-    # The SQLite implementation is intentionally kept as the dependable local fallback.
+class ChromaMemoryStore:
+    def __init__(self, path: Path, embedder: HashEmbedder | None = None) -> None:
+        try:
+            import chromadb
+        except ImportError as exc:
+            raise RuntimeError("chromadb is not installed") from exc
+
+        self.path = path
+        self.embedder = embedder or HashEmbedder()
+        host = os.environ.get("CONTEXTKIT_CHROMA_HOST")
+        port = os.environ.get("CONTEXTKIT_CHROMA_PORT", "8000")
+        if host:
+            self.client = chromadb.HttpClient(host=host, port=int(port))
+        else:
+            self.client = chromadb.PersistentClient(path=str(path.expanduser()))
+        self.collections = {
+            name: self.client.get_or_create_collection(
+                name=name,
+                metadata={"hnsw:space": "cosine", "contextkit_collection": name},
+            )
+            for name in COLLECTIONS
+        }
+
+    def add(self, text: str, collection: str = "misc", metadata: dict[str, Any] | None = None) -> MemoryDocument:
+        collection = normalize_collection(collection)
+        metadata = self._metadata(collection, metadata)
+        memory_id = str(metadata.get("id") or uuid.uuid4())
+        timestamp = str(metadata["timestamp"])
+        embedding = self.embedder.embed(text)
+        self.collections[collection].upsert(
+            ids=[memory_id],
+            documents=[text],
+            embeddings=[embedding],
+            metadatas=[metadata],
+        )
+        return MemoryDocument(memory_id, collection, text, metadata, timestamp)
+
+    def search(self, query: str, limit: int = 10, collections: list[str] | None = None) -> list[MemoryDocument]:
+        selected = [normalize_collection(name) for name in (collections or list(COLLECTIONS))]
+        query_embedding = self.embedder.embed(query)
+        results: list[MemoryDocument] = []
+        per_collection = max(limit, 1)
+        for collection_name in dict.fromkeys(selected):
+            raw = self.collections[collection_name].query(
+                query_embeddings=[query_embedding],
+                n_results=per_collection,
+                include=["documents", "metadatas", "distances"],
+            )
+            results.extend(self._query_results(collection_name, raw))
+        results.sort(key=lambda item: (item.score, item.timestamp), reverse=True)
+        return results[:limit]
+
+    def recent(self, time_range: str = "1h", limit: int = 20) -> list[MemoryDocument]:
+        cutoff = SQLiteMemoryStore._cutoff(time_range).isoformat()
+        results: list[MemoryDocument] = []
+        for collection_name, collection in self.collections.items():
+            raw = collection.get(include=["documents", "metadatas"])
+            results.extend(item for item in self._get_results(collection_name, raw) if item.timestamp >= cutoff)
+        results.sort(key=lambda item: item.timestamp, reverse=True)
+        return results[:limit]
+
+    def by_path(self, path: str) -> MemoryDocument | None:
+        collection = self.collections["filesystem"]
+        for key in ("path", "source"):
+            raw = collection.get(where={key: path}, include=["documents", "metadatas"], limit=1)
+            matches = self._get_results("filesystem", raw)
+            if matches:
+                return matches[0]
+        return None
+
+    @staticmethod
+    def _metadata(collection: str, metadata: dict[str, Any] | None) -> dict[str, Any]:
+        prepared = dict(metadata or {})
+        prepared["collection"] = collection
+        prepared.setdefault("source", "manual")
+        prepared.setdefault("summary", "")
+        prepared.setdefault("screenshot_path", "")
+        prepared.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
+        return {key: ChromaMemoryStore._scalar(value) for key, value in prepared.items() if value is not None}
+
+    @staticmethod
+    def _scalar(value: Any) -> str | int | float | bool:
+        if isinstance(value, str | int | float | bool):
+            return value
+        return json.dumps(value, sort_keys=True)
+
+    @staticmethod
+    def _query_results(collection: str, raw: dict[str, Any]) -> list[MemoryDocument]:
+        ids = raw.get("ids", [[]])[0]
+        documents = raw.get("documents", [[]])[0]
+        metadatas = raw.get("metadatas", [[]])[0]
+        distances = raw.get("distances", [[]])[0]
+        results: list[MemoryDocument] = []
+        for index, memory_id in enumerate(ids):
+            metadata = dict(metadatas[index] or {})
+            timestamp = str(metadata.get("timestamp", ""))
+            distance = float(distances[index]) if index < len(distances) else 1.0
+            score = 1.0 - distance
+            results.append(MemoryDocument(memory_id, collection, documents[index], metadata, timestamp, score))
+        return results
+
+    @staticmethod
+    def _get_results(collection: str, raw: dict[str, Any]) -> list[MemoryDocument]:
+        ids = raw.get("ids", [])
+        documents = raw.get("documents", [])
+        metadatas = raw.get("metadatas", [])
+        results: list[MemoryDocument] = []
+        for index, memory_id in enumerate(ids):
+            metadata = dict(metadatas[index] or {})
+            timestamp = str(metadata.get("timestamp", ""))
+            results.append(MemoryDocument(memory_id, collection, documents[index], metadata, timestamp))
+        return results
+
+
+def normalize_collection(collection: str) -> str:
+    return collection if collection in COLLECTIONS else "misc"
+
+
+def create_store(
+    db_path: Path,
+    use_chroma: bool = True,
+    chroma_path: Path | None = None,
+) -> ChromaMemoryStore | SQLiteMemoryStore:
+    if use_chroma:
+        try:
+            return ChromaMemoryStore(chroma_path or db_path.parent / "chroma")
+        except RuntimeError:
+            pass
     return SQLiteMemoryStore(db_path)

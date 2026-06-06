@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import sys
+from types import SimpleNamespace
 
 import pytest
 
 from mcp_server.auth import AuthError, TokenAuth
-from mcp_server.config import ServerConfig
+from mcp_server.config import COLLECTIONS, ServerConfig
 from mcp_server.main import build_tools, create_app
+from mcp_server.memory.chroma_store import ChromaMemoryStore
 
 
 @pytest.fixture()
@@ -91,3 +94,49 @@ def test_http_app_health_and_auth(tmp_path):
         json={"arguments": {"query": "tunnel", "limit": 1}},
     )
     assert search.json()[0]["text"] == "ChatGPT tunnel note"
+
+
+def test_chroma_store_creates_and_routes_required_collections(monkeypatch, tmp_path):
+    created: dict[str, FakeChromaCollection] = {}
+
+    class FakePersistentClient:
+        def __init__(self, path: str):
+            self.path = path
+
+        def get_or_create_collection(self, name: str, metadata: dict):
+            collection = FakeChromaCollection(name, metadata)
+            created[name] = collection
+            return collection
+
+    monkeypatch.setitem(sys.modules, "chromadb", SimpleNamespace(PersistentClient=FakePersistentClient))
+
+    store = ChromaMemoryStore(tmp_path / "chroma")
+    store.add(
+        "Slack message about launch",
+        "messages",
+        {"source": "slack", "summary": "Launch message", "screenshot_path": "/tmp/slack.jpg"},
+    )
+    store.add("Finder showed lease.pdf", "filesystem", {"source": "/tmp/lease.pdf", "path": "/tmp/lease.pdf"})
+    store.add("Unknown content", "unknown", {"source": "manual"})
+
+    assert set(created) == set(COLLECTIONS)
+    assert created["messages"].documents[0] == "Slack message about launch"
+    assert created["messages"].metadatas[0]["collection"] == "messages"
+    assert created["filesystem"].metadatas[0]["path"] == "/tmp/lease.pdf"
+    assert created["misc"].metadatas[0]["collection"] == "misc"
+
+
+class FakeChromaCollection:
+    def __init__(self, name: str, metadata: dict):
+        self.name = name
+        self.metadata = metadata
+        self.ids: list[str] = []
+        self.documents: list[str] = []
+        self.metadatas: list[dict] = []
+        self.embeddings: list[list[float]] = []
+
+    def upsert(self, ids, documents, embeddings, metadatas):
+        self.ids.extend(ids)
+        self.documents.extend(documents)
+        self.embeddings.extend(embeddings)
+        self.metadatas.extend(metadatas)
