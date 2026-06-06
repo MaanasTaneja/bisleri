@@ -75,7 +75,7 @@ final class AppState: ObservableObject {
 
     private func captureAndPollScreenshot() async {
         screenshotStatus = .capturing
-        guard let image = ScreenCaptureManager.captureMainDisplay(),
+        guard let image = ScreenCaptureManager.captureActiveWindow(),
               let data = image.pngData() else {
             await finishScreenshot(status: .failed("Could not capture the screen."))
             return

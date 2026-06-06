@@ -109,14 +109,16 @@ class OCRProcessor:
                         {
                             "type": "input_text",
                             "text": (
-                                "Analyze the screenshot and output JSON matching the schema. Classification rules: "
-                                "messages = iMessage, WhatsApp, Slack, email, or any chat/messaging window; "
-                                "browser = web browser, URLs visible, or web content; "
-                                "filesystem = Finder, file explorer, code editor, PDF/document viewer, or file path content; "
-                                "misc = terminal, settings, clipboard/manual context, or anything else. "
-                                "Custom collection names may also be available; choose a custom collection only when "
-                                "the screenshot strongly matches that user-defined category."
-                            ),
+                                 "Analyze the screenshot carefully and output JSON matching the schema. "
+                                 "Choose the collection type based on the application window and its content: "
+                                 "1. messages: If the window is a chat app (iMessage, Slack, Discord, WhatsApp, Telegram) or an email client. "
+                                 "2. browser: If the window is a web browser (Safari, Chrome, Firefox) or contains obvious web content/URLs. "
+                                 "3. filesystem: If the window is an IDE/Code Editor (Cursor, VS Code, Xcode), a Finder window, a Terminal, or a PDF/Document viewer. "
+                                 "4. misc: Use only if it doesn't clearly fit others (e.g., System Settings, Calculator). "
+                                 "5. Custom collection names may also be available; choose a custom collection only when "
+                                 "the screenshot strongly matches that user-defined category."
+                                 "Always prioritize the most specific category based on the visual context."
+                             ),
                         },
                         {
                             "type": "input_image",
