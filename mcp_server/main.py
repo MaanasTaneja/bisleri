@@ -72,7 +72,7 @@ def create_app(config: ServerConfig):
         except ValueError as exc:
             raise HTTPException(status_code=422, detail="image_base64 is not valid base64") from exc
         try:
-            normalized = normalize_image_for_openai(image_bytes)
+            normalized = normalize_image_for_openai(image_bytes, request.mime_type)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import builtins
 from datetime import datetime, timezone
 import sys
 from types import SimpleNamespace
@@ -10,6 +11,7 @@ import pytest
 from mcp_server.auth import AuthError, TokenAuth
 from mcp_server.config import COLLECTIONS, ServerConfig
 from mcp_server.main import build_tools, create_app
+from mcp_server.images import normalize_image_for_openai
 from mcp_server.memory.chroma_store import ChromaMemoryStore, create_store
 from mcp_server.ocr import OCRConfigurationError, OCRProcessor, OCR_RESPONSE_SCHEMA, OCRResult
 
@@ -201,6 +203,24 @@ def test_ingest_screenshot_rejects_undecodable_image(tmp_path):
 
     assert response.status_code == 422
     assert response.json()["detail"] == "image data could not be decoded"
+
+
+def test_image_normalization_passes_through_when_pillow_missing(monkeypatch, caplog):
+    original_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "PIL":
+            raise ImportError("missing pillow")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    with caplog.at_level("WARNING"):
+        normalized = normalize_image_for_openai(PNG_1X1, "image/png")
+
+    assert normalized.data == PNG_1X1
+    assert normalized.mime_type == "image/png"
+    assert "Pillow is not installed" in caplog.text
 
 
 def test_ocr_parser_accepts_fenced_json():

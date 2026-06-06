@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from io import BytesIO
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -14,11 +17,12 @@ class NormalizedImage:
         return self.mime_type
 
 
-def normalize_image_for_openai(image_bytes: bytes) -> NormalizedImage:
+def normalize_image_for_openai(image_bytes: bytes, mime_type: str) -> NormalizedImage:
     try:
         from PIL import Image, ImageOps
-    except ImportError as exc:  # pragma: no cover
-        raise RuntimeError("Pillow is required for screenshot image normalization") from exc
+    except ImportError:
+        logger.warning("Pillow is not installed; sending %s image to OpenAI without normalization", mime_type)
+        return NormalizedImage(data=image_bytes, mime_type=mime_type)
 
     try:
         with Image.open(BytesIO(image_bytes)) as image:
