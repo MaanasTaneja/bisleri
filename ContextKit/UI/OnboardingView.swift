@@ -9,6 +9,8 @@ struct OnboardingView: View {
     @AppStorage(customFoldersKey) private var customFolderPaths: String = ""
     @State private var copiedClaudeSnippet = false
     @State private var copiedSSEURL = false
+    @State private var claudeStatusMessage: String?
+    @State private var claudeStatusIsError = false
 
     private let defaultFolderNames = ["Documents", "Desktop", "Downloads"]
 
@@ -120,21 +122,35 @@ struct OnboardingView: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Claude Desktop").font(.subheadline.weight(.semibold))
-                Text("Add this to \(claudeConfigPath):")
+                Text("One-click setup — writes \(claudeConfigPath) and adds the ContextKit MCP server.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text(claudeConfigSnippet)
-                    .font(.caption.monospaced())
-                    .textSelection(.enabled)
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-                Button {
-                    copy(claudeConfigSnippet)
-                    copiedClaudeSnippet = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copiedClaudeSnippet = false }
-                } label: {
-                    Label(copiedClaudeSnippet ? "Copied" : "Copy snippet", systemImage: copiedClaudeSnippet ? "checkmark" : "doc.on.doc")
+
+                HStack {
+                    Button {
+                        connectClaudeDesktop()
+                    } label: {
+                        Label("Connect Claude Desktop", systemImage: "link.badge.plus")
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button {
+                        copy(claudeConfigSnippet)
+                        copiedClaudeSnippet = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copiedClaudeSnippet = false }
+                    } label: {
+                        Label(copiedClaudeSnippet ? "Copied" : "Copy snippet", systemImage: copiedClaudeSnippet ? "checkmark" : "doc.on.doc")
+                    }
+                }
+
+                if let message = claudeStatusMessage {
+                    HStack(spacing: 6) {
+                        Image(systemName: claudeStatusIsError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                            .foregroundStyle(claudeStatusIsError ? .orange : .green)
+                        Text(message)
+                            .font(.caption)
+                    }
+                    .padding(.top, 4)
                 }
             }
 
@@ -217,5 +233,41 @@ struct OnboardingView: View {
           }
         }
         """
+    }
+
+    private func connectClaudeDesktop() {
+        let fm = FileManager.default
+        let home = fm.homeDirectoryForCurrentUser
+        let claudeDir = home
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+            .appendingPathComponent("Claude", isDirectory: true)
+        let configURL = claudeDir.appendingPathComponent("claude_desktop_config.json")
+
+        do {
+            try fm.createDirectory(at: claudeDir, withIntermediateDirectories: true)
+
+            var config: [String: Any] = [:]
+            if let data = try? Data(contentsOf: configURL),
+               let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                config = parsed
+            }
+
+            var mcpServers = config["mcpServers"] as? [String: Any] ?? [:]
+            mcpServers["contextkit"] = [
+                "command": "npx",
+                "args": ["-y", "mcp-remote", sseURL]
+            ] as [String: Any]
+            config["mcpServers"] = mcpServers
+
+            let data = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
+            try data.write(to: configURL, options: .atomic)
+
+            claudeStatusIsError = false
+            claudeStatusMessage = "Added to claude_desktop_config.json. Restart Claude Desktop to pick it up."
+        } catch {
+            claudeStatusIsError = true
+            claudeStatusMessage = "Failed to write config: \(error.localizedDescription)"
+        }
     }
 }
