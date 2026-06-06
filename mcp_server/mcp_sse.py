@@ -193,6 +193,7 @@ def mount_mcp_sse(app, tools: ContextKitTools, flag: MemorySharingFlag) -> None:
     transport = SseServerTransport("/messages/")
 
     from starlette.responses import Response
+    from starlette.routing import Mount, Route
 
     async def sse_endpoint(request):
         async with transport.connect_sse(
@@ -207,6 +208,6 @@ def mount_mcp_sse(app, tools: ContextKitTools, flag: MemorySharingFlag) -> None:
             )
         return Response()
 
-    app.add_api_route("/sse", sse_endpoint, methods=["GET"], include_in_schema=False)
-    app.mount("/messages/", transport.handle_post_message)
+    app.router.routes.append(Route("/sse", endpoint=sse_endpoint, methods=["GET"]))
+    app.router.routes.append(Mount("/messages/", app=transport.handle_post_message))
     logger.info("ContextKit MCP SSE routes mounted at /sse and /messages/")
