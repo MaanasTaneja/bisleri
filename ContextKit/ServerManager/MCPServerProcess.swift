@@ -11,6 +11,8 @@ final class MCPServerProcess {
             return
         }
 
+        Self.killProcessesOnPort(port)
+
         let (executable, leadingArgs) = Self.resolvePython(repoRoot: repoRoot)
 
         let process = Process()
@@ -50,6 +52,34 @@ final class MCPServerProcess {
             dir = parent
         }
         return nil
+    }
+
+    private static func killProcessesOnPort(_ port: Int) {
+        let lsof = Process()
+        lsof.executableURL = URL(fileURLWithPath: "/bin/sh")
+        lsof.arguments = ["-c", "lsof -ti tcp:\(port)"]
+        let pipe = Pipe()
+        lsof.standardOutput = pipe
+        lsof.standardError = Pipe()
+        do {
+            try lsof.run()
+            lsof.waitUntilExit()
+        } catch {
+            return
+        }
+        guard let data = try? pipe.fileHandleForReading.readToEnd(),
+              let output = String(data: data, encoding: .utf8) else { return }
+        let pids = output.split(whereSeparator: { $0.isNewline || $0.isWhitespace }).map(String.init)
+        for pid in pids where !pid.isEmpty {
+            let kill = Process()
+            kill.executableURL = URL(fileURLWithPath: "/bin/kill")
+            kill.arguments = ["-9", pid]
+            try? kill.run()
+            kill.waitUntilExit()
+        }
+        if !pids.isEmpty {
+            Thread.sleep(forTimeInterval: 0.2)
+        }
     }
 
     private static func resolvePython(repoRoot: URL) -> (executable: String, leadingArgs: [String]) {

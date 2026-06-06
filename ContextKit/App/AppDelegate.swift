@@ -20,6 +20,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.contentSize = NSSize(width: 390, height: 620)
         popover.contentViewController = NSHostingController(rootView: MenuBarView().environmentObject(appState))
         self.popover = popover
+
+        if !appState.serverRunning {
+            appState.toggleServer()
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        appState?.server.stop()
     }
 
     @objc private func togglePopover() {
