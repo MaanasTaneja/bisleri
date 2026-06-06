@@ -119,6 +119,24 @@ class SQLiteMemoryStore:
                 return MemoryDocument(row["id"], row["collection"], row["text"], metadata, row["timestamp"])
         return None
 
+    def list_documents(self, collection: str | None = None, limit: int = 200) -> list[MemoryDocument]:
+        with self._connect() as db:
+            db.row_factory = sqlite3.Row
+            if collection:
+                rows = db.execute(
+                    "select * from memories where collection = ? order by timestamp desc limit ?",
+                    (collection, limit),
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    "select * from memories order by timestamp desc limit ?",
+                    (limit,),
+                ).fetchall()
+        return [
+            MemoryDocument(row["id"], row["collection"], row["text"], json.loads(row["metadata"]), row["timestamp"])
+            for row in rows
+        ]
+
     @staticmethod
     def _cutoff(time_range: str) -> datetime:
         now = datetime.now(timezone.utc)
@@ -213,6 +231,15 @@ class ChromaMemoryStore:
             if matches:
                 return matches[0]
         return None
+
+    def list_documents(self, collection: str | None = None, limit: int = 200) -> list[MemoryDocument]:
+        names = [collection] if collection and collection in self.collections else list(self.collections.keys())
+        results: list[MemoryDocument] = []
+        for name in names:
+            raw = self.collections[name].get(include=["documents", "metadatas"], limit=limit)
+            results.extend(self._get_results(name, raw))
+        results.sort(key=lambda item: item.timestamp, reverse=True)
+        return results[:limit]
 
     @staticmethod
     def _metadata(collection: str, metadata: dict[str, Any] | None) -> dict[str, Any]:

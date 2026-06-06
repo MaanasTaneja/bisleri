@@ -84,6 +84,11 @@ class ContextKitTools:
             {"type": "collection", "sources": [{"name": name, "enabled": True} for name in self.config.enabled_collections]},
         ]
 
+    def list_memory(self, collection: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+        self.access_logger.record("list_memory", collection or "all")
+        items = self.store.list_documents(collection, limit)
+        return [self._to_result(item) for item in items]
+
     def memory_status(self) -> dict[str, Any]:
         return {
             "backend": getattr(self.store, "backend", type(self.store).__name__),

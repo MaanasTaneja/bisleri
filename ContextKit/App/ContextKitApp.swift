@@ -8,5 +8,9 @@ struct ContextKitApp: App {
         Settings {
             OnboardingView()
         }
+        Window("Memory Map", id: "memory-viewer") {
+            MemoryViewerView()
+        }
+        .windowResizability(.contentSize)
     }
 }

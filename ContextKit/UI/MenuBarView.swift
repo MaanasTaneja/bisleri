@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MenuBarView: View {
     @EnvironmentObject private var state: AppState
+    @Environment(\.openWindow) private var openWindow
     @State private var query = ""
 
     var body: some View {
@@ -22,6 +23,14 @@ struct MenuBarView: View {
             Text("ContextKit")
                 .font(.headline)
             Spacer()
+            Button {
+                openWindow(id: "memory-viewer")
+                NSApp.activate(ignoringOtherApps: true)
+            } label: {
+                Image(systemName: "circle.hexagongrid")
+            }
+            .buttonStyle(.borderless)
+            .help("Memory Map")
             Button {
                 NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
             } label: {
