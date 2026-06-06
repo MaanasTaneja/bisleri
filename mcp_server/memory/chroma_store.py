@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from mcp_server.config import COLLECTIONS
+from mcp_server.config import COLLECTIONS, normalize_collections, validate_collection_name
 from mcp_server.memory.embedder import HashEmbedder, cosine
 
 logger = logging.getLogger(__name__)
@@ -27,9 +27,15 @@ class MemoryDocument:
 
 
 class SQLiteMemoryStore:
-    def __init__(self, db_path: Path, embedder: HashEmbedder | None = None) -> None:
+    def __init__(
+        self,
+        db_path: Path,
+        embedder: HashEmbedder | None = None,
+        collections: tuple[str, ...] = COLLECTIONS,
+    ) -> None:
         self.db_path = db_path
         self.embedder = embedder or HashEmbedder()
+        self.collection_names = normalize_collections(list(collections))
         self.backend = "sqlite"
         self.mode = "fallback"
         self.location = str(db_path)
@@ -57,7 +63,7 @@ class SQLiteMemoryStore:
             db.execute("create index if not exists memories_timestamp_idx on memories(timestamp)")
 
     def add(self, text: str, collection: str = "misc", metadata: dict[str, Any] | None = None) -> MemoryDocument:
-        if collection not in COLLECTIONS:
+        if collection not in self.collection_names:
             collection = "misc"
         metadata = dict(metadata or {})
         timestamp = metadata.get("timestamp") or datetime.now(timezone.utc).isoformat()
@@ -76,7 +82,9 @@ class SQLiteMemoryStore:
 
     def search(self, query: str, limit: int = 10, collections: list[str] | None = None) -> list[MemoryDocument]:
         query_embedding = self.embedder.embed(query)
-        selected = tuple(collections or COLLECTIONS)
+        selected = tuple(name for name in (collections or list(self.collection_names)) if name in self.collection_names)
+        if not selected:
+            selected = ("misc",)
         placeholders = ",".join("?" for _ in selected)
         with self._connect() as db:
             db.row_factory = sqlite3.Row
@@ -108,6 +116,15 @@ class SQLiteMemoryStore:
             MemoryDocument(row["id"], row["collection"], row["text"], json.loads(row["metadata"]), row["timestamp"])
             for row in rows
         ]
+
+    def create_collection(self, name: str) -> str:
+        collection = validate_collection_name(name)
+        if collection not in self.collection_names:
+            self.collection_names = (*self.collection_names, collection)
+        return collection
+
+    def list_collections(self) -> list[str]:
+        return list(self.collection_names)
 
     def by_path(self, path: str) -> MemoryDocument | None:
         with self._connect() as db:
@@ -151,7 +168,12 @@ class SQLiteMemoryStore:
 
 
 class ChromaMemoryStore:
-    def __init__(self, path: Path, embedder: HashEmbedder | None = None) -> None:
+    def __init__(
+        self,
+        path: Path,
+        embedder: HashEmbedder | None = None,
+        collections: tuple[str, ...] = COLLECTIONS,
+    ) -> None:
         try:
             import chromadb
         except ImportError as exc:
@@ -173,12 +195,8 @@ class ChromaMemoryStore:
             self.client = chromadb.PersistentClient(path=str(path.expanduser()))
         self.backend = "chroma"
         self.collections = {}
-        for name in COLLECTIONS:
-            self.collections[name] = self.client.get_or_create_collection(
-                name=name,
-                metadata={"hnsw:space": "cosine", "contextkit_collection": name},
-            )
-            logger.info("ContextKit memory store: Chroma collection ready: %s", name)
+        for name in normalize_collections(list(collections)):
+            self.create_collection(name)
         logger.info(
             "ContextKit memory store: Chroma is working in %s mode with collections: %s",
             self.mode,
@@ -186,7 +204,7 @@ class ChromaMemoryStore:
         )
 
     def add(self, text: str, collection: str = "misc", metadata: dict[str, Any] | None = None) -> MemoryDocument:
-        collection = normalize_collection(collection)
+        collection = self.normalize_collection(collection)
         metadata = self._metadata(collection, metadata)
         memory_id = str(metadata.get("id") or uuid.uuid4())
         timestamp = str(metadata["timestamp"])
@@ -200,7 +218,7 @@ class ChromaMemoryStore:
         return MemoryDocument(memory_id, collection, text, metadata, timestamp)
 
     def search(self, query: str, limit: int = 10, collections: list[str] | None = None) -> list[MemoryDocument]:
-        selected = [normalize_collection(name) for name in (collections or list(COLLECTIONS))]
+        selected = [self.normalize_collection(name) for name in (collections or list(self.collections))]
         query_embedding = self.embedder.embed(query)
         results: list[MemoryDocument] = []
         per_collection = max(limit, 1)
@@ -213,6 +231,19 @@ class ChromaMemoryStore:
             results.extend(self._query_results(collection_name, raw))
         results.sort(key=lambda item: (item.score, item.timestamp), reverse=True)
         return results[:limit]
+
+    def create_collection(self, name: str) -> str:
+        collection = validate_collection_name(name)
+        if collection not in self.collections:
+            self.collections[collection] = self.client.get_or_create_collection(
+                name=collection,
+                metadata={"hnsw:space": "cosine", "contextkit_collection": collection},
+            )
+            logger.info("ContextKit memory store: Chroma collection ready: %s", collection)
+        return collection
+
+    def list_collections(self) -> list[str]:
+        return list(self.collections)
 
     def recent(self, time_range: str = "1h", limit: int = 20) -> list[MemoryDocument]:
         cutoff = SQLiteMemoryStore._cutoff(time_range).isoformat()
@@ -240,6 +271,9 @@ class ChromaMemoryStore:
             results.extend(self._get_results(name, raw))
         results.sort(key=lambda item: item.timestamp, reverse=True)
         return results[:limit]
+
+    def normalize_collection(self, collection: str) -> str:
+        return collection if collection in self.collections else "misc"
 
     @staticmethod
     def _metadata(collection: str, metadata: dict[str, Any] | None) -> dict[str, Any]:
@@ -293,12 +327,13 @@ def create_store(
     db_path: Path,
     use_chroma: bool = True,
     chroma_path: Path | None = None,
+    collections: tuple[str, ...] = COLLECTIONS,
 ) -> ChromaMemoryStore | SQLiteMemoryStore:
     if use_chroma:
         try:
-            return ChromaMemoryStore(chroma_path or db_path.parent / "chroma")
+            return ChromaMemoryStore(chroma_path or db_path.parent / "chroma", collections=collections)
         except Exception as exc:
             logger.warning("ContextKit memory store: Chroma unavailable, falling back to SQLite: %s", exc)
     else:
         logger.info("ContextKit memory store: Chroma disabled by CONTEXTKIT_USE_CHROMA=0")
-    return SQLiteMemoryStore(db_path)
+    return SQLiteMemoryStore(db_path, collections=collections)

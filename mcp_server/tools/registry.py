@@ -81,7 +81,7 @@ class ContextKitTools:
         folders = [{"path": str(path), "enabled": True} for path in self.config.allowed_folders]
         return [
             {"type": "folder", "sources": folders},
-            {"type": "collection", "sources": [{"name": name, "enabled": True} for name in self.config.enabled_collections]},
+            {"type": "collection", "sources": [{"name": name, "enabled": True} for name in self.list_collections()]},
         ]
 
     def list_memory(self, collection: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
@@ -94,8 +94,21 @@ class ContextKitTools:
             "backend": getattr(self.store, "backend", type(self.store).__name__),
             "mode": getattr(self.store, "mode", "unknown"),
             "location": getattr(self.store, "location", ""),
-            "collections": list(self.config.enabled_collections),
+            "collections": self.list_collections(),
         }
+
+    def list_collections(self) -> list[str]:
+        if hasattr(self.store, "list_collections"):
+            return self.store.list_collections()
+        return list(self.config.enabled_collections)
+
+    def create_collection(self, name: str) -> dict[str, Any]:
+        self.access_logger.record("create_collection", name)
+        if not hasattr(self.store, "create_collection"):
+            raise RuntimeError("memory store does not support custom collections")
+        collection = self.store.create_collection(name)
+        self.config.save_custom_collections(tuple(self.list_collections()))
+        return {"name": collection, "collections": self.list_collections()}
 
     def access_log(self, limit: int = 50) -> list[dict[str, Any]]:
         return self.access_logger.recent(limit)

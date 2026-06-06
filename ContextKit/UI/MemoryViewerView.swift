@@ -7,12 +7,13 @@ private let collectionPalette: [String: Color] = [
     "misc": .purple
 ]
 
-private let collectionOrder = ["filesystem", "messages", "browser", "misc"]
+private let defaultCollectionOrder = ["filesystem", "messages", "browser", "misc"]
 
 struct MemoryViewerView: View {
     @StateObject private var model = MemoryViewerModel()
     @State private var selectedCollection: String?
     @State private var selectedItem: MemoryItem?
+    @State private var newCollectionName = ""
 
     var body: some View {
         HSplitView {
@@ -41,6 +42,7 @@ struct MemoryViewerView: View {
             Color(nsColor: .underPageBackgroundColor)
             GeometryReader { proxy in
                 GraphCanvas(
+                    collections: model.collections,
                     counts: model.counts,
                     selected: selectedCollection,
                     size: proxy.size,
@@ -137,12 +139,14 @@ struct MemoryViewerView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
             Divider()
-            ForEach(collectionOrder, id: \.self) { name in
+            createCollectionControl
+            Divider()
+            ForEach(model.collections, id: \.self) { name in
                 HStack {
                     Circle()
-                        .fill(collectionPalette[name] ?? .gray)
+                        .fill(collectionColor(name))
                         .frame(width: 10, height: 10)
-                    Text(name.capitalized)
+                    Text(collectionTitle(name))
                     Spacer()
                     Text("\(model.counts[name] ?? 0)")
                         .foregroundStyle(.secondary)
@@ -153,6 +157,34 @@ struct MemoryViewerView: View {
             Spacer()
         }
         .padding(20)
+    }
+
+    private var createCollectionControl: some View {
+        HStack(spacing: 8) {
+            TextField("New collection", text: $newCollectionName)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit {
+                    Task { await createCollection() }
+                }
+            Button {
+                Task { await createCollection() }
+            } label: {
+                Image(systemName: "plus")
+            }
+            .buttonStyle(.bordered)
+            .disabled(model.isCreatingCollection || newCollectionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .help("Create Collection")
+        }
+    }
+
+    private func createCollection() async {
+        let name = newCollectionName
+        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        if let created = await model.createCollection(name: name) {
+            newCollectionName = ""
+            selectedCollection = created
+            selectedItem = nil
+        }
     }
 }
 
@@ -223,6 +255,7 @@ private struct MemoryRow: View {
 }
 
 private struct GraphCanvas: View {
+    let collections: [String]
     let counts: [String: Int]
     let selected: String?
     let size: CGSize
@@ -233,16 +266,16 @@ private struct GraphCanvas: View {
         let radius = min(size.width, size.height) * 0.32
 
         ZStack {
-            ForEach(Array(collectionOrder.enumerated()), id: \.element) { index, name in
-                let position = nodePosition(index: index, total: collectionOrder.count, center: center, radius: radius)
+            ForEach(Array(collections.enumerated()), id: \.element) { index, name in
+                let position = nodePosition(index: index, total: collections.count, center: center, radius: radius)
                 ConnectionLine(from: center, to: position, isActive: selected == name)
             }
 
             CenterNode()
                 .position(center)
 
-            ForEach(Array(collectionOrder.enumerated()), id: \.element) { index, name in
-                let position = nodePosition(index: index, total: collectionOrder.count, center: center, radius: radius)
+            ForEach(Array(collections.enumerated()), id: \.element) { index, name in
+                let position = nodePosition(index: index, total: collections.count, center: center, radius: radius)
                 CollectionNode(
                     name: name,
                     count: counts[name] ?? 0,
@@ -306,7 +339,7 @@ private struct CollectionNode: View {
     let isSelected: Bool
 
     var body: some View {
-        let color = collectionPalette[name] ?? .gray
+        let color = collectionColor(name)
         VStack(spacing: 4) {
             ZStack {
                 Circle()
@@ -319,8 +352,10 @@ private struct CollectionNode: View {
                     .font(.title3.weight(.bold))
                     .foregroundStyle(color)
             }
-            Text(name.capitalized)
+            Text(collectionTitle(name))
                 .font(.caption.weight(.semibold))
+                .lineLimit(1)
+                .frame(width: 96)
         }
         .scaleEffect(isSelected ? 1.05 : 1.0)
         .animation(.easeInOut(duration: 0.15), value: isSelected)
@@ -330,8 +365,10 @@ private struct CollectionNode: View {
 @MainActor
 private final class MemoryViewerModel: ObservableObject {
     @Published var items: [MemoryItem] = []
+    @Published var collections: [String] = defaultCollectionOrder
     @Published var counts: [String: Int] = [:]
     @Published var isLoading = false
+    @Published var isCreatingCollection = false
     @Published var errorMessage: String?
 
     private let client = MemoryClient()
@@ -340,8 +377,11 @@ private final class MemoryViewerModel: ObservableObject {
         isLoading = true
         errorMessage = nil
         do {
-            let fetched = try await client.fetchMemory(limit: 500)
+            async let fetchedMemory = client.fetchMemory(limit: 500)
+            async let fetchedCollections = client.fetchCollections()
+            let (fetched, serverCollections) = try await (fetchedMemory, fetchedCollections)
             items = fetched
+            collections = orderedCollections(serverCollections, items: fetched)
             var tally: [String: Int] = [:]
             for item in fetched {
                 tally[item.collection, default: 0] += 1
@@ -350,8 +390,54 @@ private final class MemoryViewerModel: ObservableObject {
         } catch {
             errorMessage = "Could not load memory. Is the server running?"
             items = []
+            collections = defaultCollectionOrder
             counts = [:]
         }
         isLoading = false
     }
+
+    func createCollection(name: String) async -> String? {
+        isCreatingCollection = true
+        errorMessage = nil
+        do {
+            let result = try await client.createCollection(name: name)
+            collections = orderedCollections(result.collections, items: items)
+            isCreatingCollection = false
+            return result.name
+        } catch {
+            errorMessage = error.localizedDescription
+            isCreatingCollection = false
+            return nil
+        }
+    }
+
+    private func orderedCollections(_ names: [String], items: [MemoryItem]) -> [String] {
+        var ordered: [String] = []
+        for name in defaultCollectionOrder where names.contains(name) {
+            ordered.append(name)
+        }
+        for name in names.sorted() where !ordered.contains(name) {
+            ordered.append(name)
+        }
+        for item in items where !ordered.contains(item.collection) {
+            ordered.append(item.collection)
+        }
+        return ordered
+    }
+
+}
+
+private func collectionTitle(_ name: String) -> String {
+    name.replacingOccurrences(of: "_", with: " ")
+        .replacingOccurrences(of: "-", with: " ")
+        .capitalized
+}
+
+private func collectionColor(_ name: String) -> Color {
+    if let color = collectionPalette[name] {
+        return color
+    }
+    let colors: [Color] = [.cyan, .mint, .indigo, .pink, .teal, .red, .yellow]
+    let value = name.unicodeScalars.reduce(0) { ($0 &* 31) &+ Int($1.value) }
+    return colors[abs(value) % colors.count]
 }

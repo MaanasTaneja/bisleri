@@ -7,31 +7,36 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from mcp_server.config import COLLECTIONS, normalize_collections
 
 SUPPORTED_IMAGE_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif"}
-COLLECTIONS = {"filesystem", "messages", "browser", "misc"}
 logger = logging.getLogger(__name__)
 
-OCR_RESPONSE_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-        "text": {
-            "type": "string",
-            "description": "All visible text extracted from the screenshot. Use an empty string if no text is visible.",
+
+def build_ocr_response_schema(collections: tuple[str, ...] = COLLECTIONS) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "text": {
+                "type": "string",
+                "description": "All visible text extracted from the screenshot. Use an empty string if no text is visible.",
+            },
+            "collection": {
+                "type": "string",
+                "enum": list(normalize_collections(list(collections))),
+                "description": "The ContextKit memory collection this screenshot belongs in.",
+            },
+            "summary": {
+                "type": "string",
+                "description": "A concise one or two sentence description of what the screenshot shows.",
+            },
         },
-        "collection": {
-            "type": "string",
-            "enum": ["messages", "browser", "filesystem", "misc"],
-            "description": "The ContextKit memory collection this screenshot belongs in.",
-        },
-        "summary": {
-            "type": "string",
-            "description": "A concise one or two sentence description of what the screenshot shows.",
-        },
-    },
-    "required": ["text", "collection", "summary"],
-}
+        "required": ["text", "collection", "summary"],
+    }
+
+
+OCR_RESPONSE_SCHEMA: dict[str, Any] = build_ocr_response_schema(COLLECTIONS)
 
 
 @dataclass(frozen=True)
@@ -46,9 +51,15 @@ class OCRConfigurationError(RuntimeError):
 
 
 class OCRProcessor:
-    def __init__(self, api_key: str | None = None, model: str | None = None) -> None:
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str | None = None,
+        collections: tuple[str, ...] = COLLECTIONS,
+    ) -> None:
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
         self.model = model or os.environ.get("OPENAI_OCR_MODEL", "gpt-4o-mini")
+        self.collections = normalize_collections(list(collections))
 
     async def process(self, image_base64: str, mime_type: str) -> OCRResult:
         if not self.api_key:
@@ -66,7 +77,7 @@ class OCRProcessor:
         async with httpx.AsyncClient(timeout=60) as client:
             response = await client.post("https://api.openai.com/v1/responses", headers=headers, json=payload)
             response.raise_for_status()
-        return self._parse_response(response.json())
+        return self._parse_response(response.json(), self.collections)
 
     def _build_payload(self, image_base64: str, mime_type: str) -> dict[str, Any]:
         return {
@@ -76,7 +87,7 @@ class OCRProcessor:
                     "type": "json_schema",
                     "name": "contextkit_screenshot_ocr",
                     "strict": True,
-                    "schema": OCR_RESPONSE_SCHEMA,
+                    "schema": build_ocr_response_schema(self.collections),
                 }
             },
             "input": [
@@ -102,7 +113,9 @@ class OCRProcessor:
                                 "messages = iMessage, WhatsApp, Slack, email, or any chat/messaging window; "
                                 "browser = web browser, URLs visible, or web content; "
                                 "filesystem = Finder, file explorer, code editor, PDF/document viewer, or file path content; "
-                                "misc = terminal, settings, clipboard/manual context, or anything else."
+                                "misc = terminal, settings, clipboard/manual context, or anything else. "
+                                "Custom collection names may also be available; choose a custom collection only when "
+                                "the screenshot strongly matches that user-defined category."
                             ),
                         },
                         {
@@ -119,7 +132,7 @@ class OCRProcessor:
         return OCRResult(text=message, collection="misc", summary=message[:180])
 
     @staticmethod
-    def _parse_response(payload: dict[str, Any]) -> OCRResult:
+    def _parse_response(payload: dict[str, Any], collections: tuple[str, ...] = COLLECTIONS) -> OCRResult:
         raw_text = payload.get("output_text") or OCRProcessor._extract_output_text(payload)
         if not raw_text:
             logger.warning("OpenAI OCR response did not include output text; storing response summary as misc")
@@ -129,12 +142,13 @@ class OCRProcessor:
         except json.JSONDecodeError:
             logger.warning("OpenAI OCR response was not JSON; storing raw OCR text as misc")
             return OCRResult(text=raw_text.strip(), collection="misc", summary=raw_text.strip()[:180])
-        return OCRProcessor._coerce_result(parsed)
+        return OCRProcessor._coerce_result(parsed, collections)
 
     @staticmethod
-    def _coerce_result(parsed: dict[str, Any]) -> OCRResult:
+    def _coerce_result(parsed: dict[str, Any], collections: tuple[str, ...] = COLLECTIONS) -> OCRResult:
+        allowed = normalize_collections(list(collections))
         collection = str(parsed.get("collection", "misc"))
-        if collection not in COLLECTIONS:
+        if collection not in allowed:
             collection = "misc"
         text = str(parsed.get("text", "")).strip()
         summary = str(parsed.get("summary", "")).strip()

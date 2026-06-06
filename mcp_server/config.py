@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 
-COLLECTIONS = ("filesystem", "messages", "browser", "misc")
+DEFAULT_COLLECTIONS = ("filesystem", "messages", "browser", "misc")
+COLLECTIONS = DEFAULT_COLLECTIONS
+COLLECTION_NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{1,61}[a-z0-9]$")
 
 
 @dataclass(frozen=True)
@@ -30,6 +34,10 @@ class ServerConfig:
     def screenshots_dir(self) -> Path:
         return self.home / "screenshots"
 
+    @property
+    def collections_path(self) -> Path:
+        return self.home / "collections.json"
+
     @classmethod
     def from_env(cls, port: int | None = None, token: str | None = None) -> "ServerConfig":
         folders = tuple(
@@ -49,3 +57,48 @@ class ServerConfig:
         self.home.mkdir(parents=True, exist_ok=True)
         self.chroma_path.mkdir(parents=True, exist_ok=True)
         self.screenshots_dir.mkdir(parents=True, exist_ok=True)
+
+    def load_collections(self) -> tuple[str, ...]:
+        custom: list[str] = []
+        if self.collections_path.exists():
+            try:
+                payload = json.loads(self.collections_path.read_text())
+                if isinstance(payload, list):
+                    custom = [str(item) for item in payload]
+                elif isinstance(payload, dict) and isinstance(payload.get("collections"), list):
+                    custom = [str(item) for item in payload["collections"]]
+            except (OSError, json.JSONDecodeError):
+                custom = []
+        return normalize_collections((*DEFAULT_COLLECTIONS, *custom))
+
+    def save_custom_collections(self, collections: tuple[str, ...]) -> None:
+        custom = [name for name in normalize_collections(collections) if name not in DEFAULT_COLLECTIONS]
+        self.collections_path.write_text(json.dumps({"collections": custom}, indent=2, sort_keys=True))
+
+
+def normalize_collection_name(name: str) -> str:
+    normalized = name.strip().lower().replace(" ", "_")
+    normalized = re.sub(r"[^a-z0-9_-]+", "_", normalized)
+    normalized = re.sub(r"[_-]{2,}", "_", normalized).strip("_-")
+    return normalized
+
+
+def validate_collection_name(name: str) -> str:
+    normalized = normalize_collection_name(name)
+    if normalized in DEFAULT_COLLECTIONS:
+        return normalized
+    if not COLLECTION_NAME_PATTERN.match(normalized):
+        raise ValueError("collection names must be 3-63 lowercase letters, numbers, underscores, or hyphens")
+    return normalized
+
+
+def normalize_collections(collections: tuple[str, ...] | list[str]) -> tuple[str, ...]:
+    names: list[str] = []
+    for collection in collections:
+        try:
+            normalized = validate_collection_name(collection)
+        except ValueError:
+            continue
+        if normalized not in names:
+            names.append(normalized)
+    return tuple(names)

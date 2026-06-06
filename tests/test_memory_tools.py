@@ -13,7 +13,7 @@ from mcp_server.config import COLLECTIONS, ServerConfig
 from mcp_server.main import build_tools, create_app
 from mcp_server.images import normalize_image_for_openai
 from mcp_server.memory.chroma_store import ChromaMemoryStore, create_store
-from mcp_server.ocr import OCRConfigurationError, OCRProcessor, OCR_RESPONSE_SCHEMA, OCRResult
+from mcp_server.ocr import OCRConfigurationError, OCRProcessor, OCR_RESPONSE_SCHEMA, OCRResult, build_ocr_response_schema
 
 
 PNG_1X1 = base64.b64decode(
@@ -105,6 +105,32 @@ def test_http_app_health_and_auth(tmp_path):
         json={"arguments": {"query": "tunnel", "limit": 1}},
     )
     assert search.json()[0]["text"] == "ChatGPT tunnel note"
+
+
+def test_http_app_creates_custom_collection_and_lists_it(tmp_path):
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    app = create_app(ServerConfig(home=tmp_path, token="http-token", use_chroma=False))
+    client = TestClient(app)
+
+    created = client.post(
+        "/collections",
+        headers={"Authorization": "Bearer http-token"},
+        json={"arguments": {"name": "Design Reviews"}},
+    )
+    listed = client.get("/collections", headers={"Authorization": "Bearer http-token"})
+    ingest = client.post(
+        "/ingest",
+        headers={"Authorization": "Bearer http-token"},
+        json={"text": "Figma comments on checkout", "collection": "design_reviews", "metadata": {"source": "test"}},
+    )
+
+    assert created.status_code == 201
+    assert created.json()["name"] == "design_reviews"
+    assert "design_reviews" in listed.json()
+    assert ingest.json()["collection"] == "design_reviews"
+    assert (tmp_path / "collections.json").exists()
 
 
 def test_ingest_screenshot_runs_python_ocr_and_routes_collection(monkeypatch, tmp_path):
@@ -278,20 +304,29 @@ def test_ocr_parser_accepts_fenced_json():
 
 
 def test_ocr_payload_uses_strict_structured_output_schema():
-    payload = OCRProcessor(api_key="test-key")._build_payload("abc123", "image/png")
+    payload = OCRProcessor(api_key="test-key", collections=(*COLLECTIONS, "design_reviews"))._build_payload(
+        "abc123",
+        "image/png",
+    )
 
     assert payload["text"]["format"]["type"] == "json_schema"
     assert payload["text"]["format"]["strict"] is True
-    assert payload["text"]["format"]["schema"] == OCR_RESPONSE_SCHEMA
-    assert payload["text"]["format"]["schema"]["properties"]["collection"]["enum"] == [
-        "messages",
-        "browser",
-        "filesystem",
-        "misc",
+    assert OCR_RESPONSE_SCHEMA == build_ocr_response_schema(COLLECTIONS)
+    assert payload["text"]["format"]["schema"]["properties"]["collection"]["enum"] == list(COLLECTIONS) + [
+        "design_reviews"
     ]
     user_content = payload["input"][1]["content"]
     assert user_content[1]["type"] == "input_image"
     assert user_content[1]["image_url"].startswith("data:image/png;base64,abc123")
+
+
+def test_ocr_parser_accepts_custom_collection():
+    result = OCRProcessor._parse_response(
+        {"output_text": '{"text":"Figma feedback","collection":"design_reviews","summary":"Design review"}'},
+        (*COLLECTIONS, "design_reviews"),
+    )
+
+    assert result.collection == "design_reviews"
 
 
 def test_ocr_parser_coerces_invalid_collection_to_misc():

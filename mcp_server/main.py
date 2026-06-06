@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 def build_tools(config: ServerConfig) -> ContextKitTools:
     config.prepare()
-    store = create_store(config.db_path, config.use_chroma, config.chroma_path)
+    store = create_store(config.db_path, config.use_chroma, config.chroma_path, collections=config.load_collections())
     access_logger = AccessLogger(config.db_path)
     tools = ContextKitTools(config, store, access_logger)
     logger.info("ContextKit server memory status: %s", tools.memory_status())
@@ -74,7 +74,10 @@ def create_app(config: ServerConfig):
         normalized_base64 = base64.b64encode(normalized.data).decode("ascii")
         screenshot_path = _write_screenshot(config, normalized.data, normalized.mime_type)
         try:
-            result = await OCRProcessor().process(normalized_base64, normalized.base64_mime_type)
+            result = await OCRProcessor(collections=tuple(tools.list_collections())).process(
+                normalized_base64,
+                normalized.base64_mime_type,
+            )
         except OCRConfigurationError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except Exception as exc:
@@ -130,6 +133,18 @@ def create_app(config: ServerConfig):
     @app.get("/health")
     def health() -> dict[str, Any]:
         return {"ok": True, "service": "contextkit", "port": config.port, "memory": tools.memory_status()}
+
+    @app.get("/collections", dependencies=[Depends(require_auth)])
+    def list_collections() -> list[str]:
+        return tools.list_collections()
+
+    @app.post("/collections", dependencies=[Depends(require_auth)], status_code=201)
+    def create_collection(request: ToolRequest = Body(...)) -> dict[str, Any]:
+        name = str(request.arguments.get("name", ""))
+        try:
+            return tools.create_collection(name)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/ingest", dependencies=[Depends(require_auth)])
     def ingest(request: IngestRequest = Body(...)) -> dict[str, Any]:
