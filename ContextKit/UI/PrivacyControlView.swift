@@ -5,6 +5,13 @@ struct PrivacyControlView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("OpenAI API Key").font(.subheadline).foregroundStyle(.secondary)
+                SecureField("Required for screenshot OCR", text: $state.openAIAPIKey)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(state.serverRunning)
+            }
+
             HStack {
                 Label(state.serverRunning ? "Server On" : "Server Off", systemImage: state.serverRunning ? "circle.fill" : "circle")
                     .foregroundStyle(state.serverRunning ? .green : .secondary)

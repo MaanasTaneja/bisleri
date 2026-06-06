@@ -10,6 +10,7 @@ from mcp_server.auth import AuthError, TokenAuth
 from mcp_server.config import COLLECTIONS, ServerConfig
 from mcp_server.main import build_tools, create_app
 from mcp_server.memory.chroma_store import ChromaMemoryStore, create_store
+from mcp_server.ocr import OCRConfigurationError, OCRResult
 
 
 @pytest.fixture()
@@ -96,6 +97,59 @@ def test_http_app_health_and_auth(tmp_path):
         json={"arguments": {"query": "tunnel", "limit": 1}},
     )
     assert search.json()[0]["text"] == "ChatGPT tunnel note"
+
+
+def test_ingest_screenshot_runs_python_ocr_and_routes_collection(monkeypatch, tmp_path):
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    async def fake_process(self, image_base64: str, mime_type: str):
+        assert image_base64 == "aGVsbG8="
+        assert mime_type == "image/png"
+        return OCRResult(
+            text="Slack screenshot says launch review is Monday",
+            collection="messages",
+            summary="Launch review Slack screenshot",
+        )
+
+    monkeypatch.setattr("mcp_server.main.OCRProcessor.process", fake_process)
+    app = create_app(ServerConfig(home=tmp_path, token="http-token"))
+    client = TestClient(app)
+
+    response = client.post(
+        "/ingest_screenshot",
+        headers={"Authorization": "Bearer http-token"},
+        json={"image_base64": "aGVsbG8=", "mime_type": "image/png", "metadata": {"source": "manual-test"}},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["collection"] == "messages"
+    assert body["metadata"]["summary"] == "Launch review Slack screenshot"
+    screenshot_path = body["metadata"]["screenshot_path"]
+    assert screenshot_path.endswith(".png")
+    assert (tmp_path / "screenshots").exists()
+
+
+def test_ingest_screenshot_requires_openai_key(monkeypatch, tmp_path):
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    async def fake_process(self, image_base64: str, mime_type: str):
+        raise OCRConfigurationError("OPENAI_API_KEY is not set")
+
+    monkeypatch.setattr("mcp_server.main.OCRProcessor.process", fake_process)
+    app = create_app(ServerConfig(home=tmp_path, token="http-token"))
+    client = TestClient(app)
+
+    response = client.post(
+        "/ingest_screenshot",
+        headers={"Authorization": "Bearer http-token"},
+        json={"image_base64": "aGVsbG8=", "mime_type": "image/png"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "OPENAI_API_KEY is not set"
 
 
 def test_chroma_store_creates_and_routes_required_collections(monkeypatch, tmp_path):

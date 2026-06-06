@@ -17,6 +17,7 @@ ContextKit is a macOS menu bar app plus a local MCP server. It captures selected
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r mcp_server/requirements.txt
+export OPENAI_API_KEY="sk-..."
 python -m mcp_server.main --port 3847 --token dev-token
 ```
 
@@ -37,6 +38,8 @@ python -m mcp_server.main --port 3847 --token dev-token
 
 Set `CONTEXTKIT_USE_CHROMA=0` only when you intentionally want the SQLite fallback for lightweight testing.
 
+Screenshot OCR is handled by the Python server. Set `OPENAI_API_KEY` in the server environment, or paste the key into the Swift menu bar popover before pressing Start. The Swift app passes that key to the Python subprocess as `OPENAI_API_KEY`.
+
 Health check:
 
 ```bash
@@ -50,6 +53,16 @@ curl -X POST http://127.0.0.1:3847/ingest \
   -H 'Authorization: Bearer dev-token' \
   -H 'Content-Type: application/json' \
   -d '{"text":"Q3 lease PDF due Friday","collection":"filesystem","metadata":{"source":"demo"}}'
+```
+
+Ingest a screenshot for OCR:
+
+```bash
+IMAGE_BASE64="$(base64 < screenshot.png | tr -d '\n')"
+curl -X POST http://127.0.0.1:3847/ingest_screenshot \
+  -H 'Authorization: Bearer dev-token' \
+  -H 'Content-Type: application/json' \
+  -d "{\"image_base64\":\"$IMAGE_BASE64\",\"mime_type\":\"image/png\",\"metadata\":{\"source\":\"screenshot\"}}"
 ```
 
 ## Tests

@@ -3,7 +3,7 @@ import Foundation
 final class MCPServerProcess {
     private var process: Process?
 
-    func start(port: Int = 3847, token: String = "dev-token") {
+    func start(port: Int = 3847, token: String = "dev-token", openAIAPIKey: String = "") {
         guard process == nil else { return }
 
         guard let repoRoot = Self.findRepoRoot() else {
@@ -17,6 +17,12 @@ final class MCPServerProcess {
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = leadingArgs + ["-m", "mcp_server.main", "--port", "\(port)", "--token", token]
         process.currentDirectoryURL = repoRoot
+        var environment = ProcessInfo.processInfo.environment
+        let trimmedKey = openAIAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedKey.isEmpty {
+            environment["OPENAI_API_KEY"] = trimmedKey
+        }
+        process.environment = environment
 
         do {
             try process.run()

@@ -9,6 +9,11 @@ final class AppState: ObservableObject {
         ConnectedClient(name: "ChatGPT", status: .disconnected),
         ConnectedClient(name: "Cursor", status: .disconnected)
     ]
+    @Published var openAIAPIKey: String {
+        didSet {
+            UserDefaults.standard.set(openAIAPIKey, forKey: "openAIAPIKey")
+        }
+    }
     @Published var accessLog: [AccessLogEntry] = []
     @Published var allowedFolders: [URL] = []
 
@@ -17,12 +22,16 @@ final class AppState: ObservableObject {
     let permissions = PermissionManager()
     let clientRegistry = ClientRegistry()
 
+    init() {
+        self.openAIAPIKey = UserDefaults.standard.string(forKey: "openAIAPIKey") ?? ""
+    }
+
     func toggleServer() {
         if serverRunning {
             server.stop()
             serverRunning = false
         } else {
-            server.start()
+            server.start(openAIAPIKey: openAIAPIKey)
             serverRunning = true
         }
     }

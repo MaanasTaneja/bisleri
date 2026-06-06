@@ -4,17 +4,27 @@ enum ScreenshotCapture {
     @MainActor
     static func captureAndIngest(state: AppState) async {
         guard let image = ScreenCaptureManager.captureMainDisplay(),
-              let data = image.tiffRepresentation else {
+              let data = image.pngData() else {
             return
         }
-        let processor = OCRProcessor()
-        if let result = try? await processor.process(imageData: data) {
-            _ = try? await state.ingestion.ingest(
-                text: result.text,
-                collection: result.collection,
-                metadata: ["summary": result.summary, "source": "screenshot"]
+        do {
+            _ = try await state.ingestion.ingestScreenshot(
+                imageData: data,
+                metadata: ["source": "screenshot"]
             )
-            state.recentItems.insert(CaptureItem(title: "Screenshot", summary: result.summary, source: "screenshot"), at: 0)
+            state.recentItems.insert(CaptureItem(title: "Screenshot", summary: "Screenshot saved to memory", source: "screenshot"), at: 0)
+        } catch {
+            NSLog("ScreenshotCapture: failed to ingest screenshot: \(error)")
         }
+    }
+}
+
+private extension NSImage {
+    func pngData() -> Data? {
+        guard let tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffRepresentation) else {
+            return nil
+        }
+        return bitmap.representation(using: .png, properties: [:])
     }
 }

@@ -4,7 +4,7 @@ struct OnboardingView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("ContextKit").font(.title)
-            Text("Choose folders, connect clients, and keep the local server off until you need it.")
+            Text("Paste your OpenAI API key in the menu bar popover, start the local server, then capture screenshots or clipboard text.")
                 .foregroundStyle(.secondary)
             Button {
                 NSWorkspace.shared.open(URL(fileURLWithPath: NSHomeDirectory()))
