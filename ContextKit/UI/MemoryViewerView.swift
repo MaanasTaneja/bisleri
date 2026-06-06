@@ -255,7 +255,7 @@ private struct GraphCanvas: View {
     }
 
     private func nodePosition(index: Int, total: Int, center: CGPoint, radius: CGFloat) -> CGPoint {
-        let angle = (2 * .pi / Double(total)) * Double(index) - .pi / 2
+        let angle: CGFloat = (2 * .pi / CGFloat(total)) * CGFloat(index) - .pi / 2
         return CGPoint(
             x: center.x + cos(angle) * radius,
             y: center.y + sin(angle) * radius
