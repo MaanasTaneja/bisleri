@@ -89,6 +89,18 @@ class ContextKitTools:
         items = self.store.list_documents(collection, limit)
         return [self._to_result(item) for item in items]
 
+    def get_memory_item(self, id: str) -> dict[str, Any] | None:
+        self.access_logger.record("get_memory_item", id)
+        item = self.store.get(id) if hasattr(self.store, "get") else None
+        if not item:
+            return None
+        return self._to_result(item)
+
+    def delete_memory(self, id: str) -> dict[str, Any]:
+        self.access_logger.record("delete_memory", id)
+        deleted = self.store.delete(id) if hasattr(self.store, "delete") else False
+        return {"id": id, "deleted": deleted}
+
     def memory_status(self) -> dict[str, Any]:
         return {
             "backend": getattr(self.store, "backend", type(self.store).__name__),
