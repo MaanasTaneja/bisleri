@@ -21,9 +21,22 @@ final class AppState: ObservableObject {
         }
     }
 
+    enum FileUploadStatus: Equatable {
+        case idle
+        case uploading(String)
+        case completed(String)
+        case failed(String)
+
+        var isBusy: Bool {
+            if case .uploading = self { return true }
+            return false
+        }
+    }
+
     @Published var serverRunning = false
     @Published var recentItems: [CaptureItem] = []
     @Published var screenshotStatus: ScreenshotStatus = .idle
+    @Published var fileUploadStatus: FileUploadStatus = .idle
     @Published var clients: [ConnectedClient] = [
         ConnectedClient(name: "Claude", status: .disconnected),
         ConnectedClient(name: "ChatGPT", status: .disconnected),
@@ -71,6 +84,34 @@ final class AppState: ObservableObject {
     func captureScreenshot() {
         guard !screenshotStatus.isBusy else { return }
         Task { await captureAndPollScreenshot() }
+    }
+
+    func ingestDroppedFile(url: URL) {
+        guard !fileUploadStatus.isBusy else { return }
+        Task { await uploadFile(url: url) }
+    }
+
+    private func uploadFile(url: URL) async {
+        let filename = url.lastPathComponent
+        fileUploadStatus = .uploading("Uploading \(filename)…")
+        do {
+            _ = try await ingestion.ingestFile(fileURL: url, metadata: ["source": "file_upload"])
+            recentItems.insert(
+                CaptureItem(title: filename, summary: "Stored in memory", source: "file_upload"),
+                at: 0
+            )
+            await finishFileUpload(status: .completed("\(filename) added to memory."))
+        } catch {
+            await finishFileUpload(status: .failed(error.localizedDescription))
+        }
+    }
+
+    private func finishFileUpload(status: FileUploadStatus) async {
+        fileUploadStatus = status
+        try? await Task.sleep(nanoseconds: 2_500_000_000)
+        if fileUploadStatus == status {
+            fileUploadStatus = .idle
+        }
     }
 
     private func captureAndPollScreenshot() async {

@@ -33,13 +33,17 @@ _TOOL_SPECS: list[dict[str, Any]] = [
         "name": "search_memory",
         "description": (
             "Search the user's personal ContextKit memory (their files, "
-            "clipboard, screenshots, browser captures, and notes). "
-            "ALWAYS call this before answering any question that touches "
-            "the user's own files, preferences, prior conversations, work "
-            "history, or anything they may have captured locally. Examples: "
-            "'what was that PDF about', 'what did I save earlier', "
-            "'find my notes on X', 'what's my address', 'when did I last "
-            "look at Y'. Cheap to call — when in doubt, search first."
+            "clipboard, screenshots, browser captures, uploaded documents, "
+            "and notes). ALWAYS call this before answering any question "
+            "that touches the user's own files, preferences, prior "
+            "conversations, work history, or anything they may have "
+            "captured locally. Examples: 'what was that PDF about', "
+            "'what did I save earlier', 'find my notes on X', 'what's my "
+            "address', 'when did I last look at Y'. Each result includes a "
+            "'text' field with the FULL document contents — when a result's "
+            "metadata.source is 'file_upload', the text field is the entire "
+            "uploaded file (filename is in metadata.filename). Cheap to "
+            "call — when in doubt, search first."
         ),
         "inputSchema": {
             "type": "object",

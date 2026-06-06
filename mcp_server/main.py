@@ -11,6 +11,13 @@ from uuid import uuid4
 from mcp_server.access_log import AccessLogger
 from mcp_server.auth import AuthError, TokenAuth
 from mcp_server.config import ServerConfig
+from mcp_server.file_processor import (
+    MAX_FILE_BYTES,
+    FileConfigurationError,
+    FileProcessingError,
+    extract_text,
+    summarize_file,
+)
 from mcp_server.images import normalize_image_for_openai
 from mcp_server.mcp_sse import MemorySharingFlag, mount_mcp_sse
 from mcp_server.memory.chroma_store import create_store
@@ -102,6 +109,12 @@ def create_app(config: ServerConfig):
     class ScreenshotIngestRequest(BaseModel):
         image_base64: str
         mime_type: str = "image/png"
+        metadata: dict[str, Any] = Field(default_factory=dict)
+
+    class FileIngestRequest(BaseModel):
+        filename: str
+        mime_type: str = "application/octet-stream"
+        content_base64: str
         metadata: dict[str, Any] = Field(default_factory=dict)
 
     class ToolRequest(BaseModel):
@@ -207,6 +220,43 @@ def create_app(config: ServerConfig):
     @app.post("/ingest_screenshot", dependencies=[Depends(require_auth)])
     async def ingest_screenshot(request: ScreenshotIngestRequest = Body(...)) -> dict[str, Any]:
         return await process_screenshot_request(request)
+
+    @app.post("/ingest_file", dependencies=[Depends(require_auth)])
+    async def ingest_file(request: FileIngestRequest = Body(...)) -> dict[str, Any]:
+        try:
+            file_bytes = base64.b64decode(request.content_base64, validate=True)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="content_base64 is not valid base64") from exc
+        if len(file_bytes) > MAX_FILE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"file exceeds {MAX_FILE_BYTES} byte limit",
+            )
+        try:
+            text = extract_text(request.filename, request.mime_type, file_bytes)
+        except FileProcessingError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        try:
+            result = await summarize_file(
+                request.filename,
+                text,
+                collections=tuple(tools.list_collections()),
+            )
+        except FileConfigurationError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+        metadata = dict(request.metadata)
+        metadata.update(
+            {
+                "source": metadata.get("source", "file_upload"),
+                "filename": request.filename,
+                "mime_type": request.mime_type,
+                "file_size": len(file_bytes),
+                "summary": result.summary,
+                "timestamp": metadata.get("timestamp", datetime.now(timezone.utc).isoformat()),
+            }
+        )
+        return tools.ingest(result.text, result.collection, metadata)
 
     @app.post("/screenshot_jobs", dependencies=[Depends(require_auth)], status_code=202)
     async def create_screenshot_job(request: ScreenshotIngestRequest = Body(...)) -> dict[str, Any]:

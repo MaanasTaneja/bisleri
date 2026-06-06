@@ -14,6 +14,46 @@ final class IngestionPipeline {
         return data
     }
 
+    func ingestFile(fileURL: URL, metadata: [String: String] = [:]) async throws -> Data {
+        let data = try Data(contentsOf: fileURL)
+        let mimeType = Self.mimeType(for: fileURL)
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:3847/ingest_file")!)
+        request.httpMethod = "POST"
+        request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        var merged = metadata
+        merged["source"] = merged["source"] ?? "file_upload"
+        request.httpBody = try JSONEncoder().encode(
+            FileIngestPayload(
+                filename: fileURL.lastPathComponent,
+                mimeType: mimeType,
+                contentBase64: data.base64EncodedString(),
+                metadata: merged
+            )
+        )
+        let (responseData, response) = try await URLSession.shared.data(for: request)
+        try Self.validate(response: response, data: responseData)
+        return responseData
+    }
+
+    private static func mimeType(for url: URL) -> String {
+        switch url.pathExtension.lowercased() {
+        case "pdf": return "application/pdf"
+        case "txt", "log": return "text/plain"
+        case "md", "markdown": return "text/markdown"
+        case "json", "jsonl": return "application/json"
+        case "csv": return "text/csv"
+        case "html", "htm": return "text/html"
+        case "xml": return "application/xml"
+        case "yaml", "yml": return "application/yaml"
+        case "py", "js", "ts", "tsx", "jsx", "swift", "go", "rs",
+             "java", "kt", "rb", "php", "c", "h", "cpp", "hpp", "cs",
+             "sh", "bash", "zsh", "sql", "toml", "ini", "cfg", "env":
+            return "text/plain"
+        default: return "application/octet-stream"
+        }
+    }
+
     func ingestScreenshot(imageData: Data, mimeType: String = "image/png", metadata: [String: String]) async throws -> Data {
         var request = URLRequest(url: URL(string: "http://127.0.0.1:3847/ingest_screenshot")!)
         request.httpMethod = "POST"
@@ -106,6 +146,20 @@ private struct IngestPayload: Encodable {
     let text: String
     let collection: String
     let metadata: [String: String]
+}
+
+private struct FileIngestPayload: Encodable {
+    let filename: String
+    let mimeType: String
+    let contentBase64: String
+    let metadata: [String: String]
+
+    enum CodingKeys: String, CodingKey {
+        case filename
+        case mimeType = "mime_type"
+        case contentBase64 = "content_base64"
+        case metadata
+    }
 }
 
 private struct ScreenshotIngestPayload: Encodable {

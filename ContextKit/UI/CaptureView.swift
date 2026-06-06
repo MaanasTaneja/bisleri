@@ -1,11 +1,14 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct CaptureView: View {
     @EnvironmentObject private var state: AppState
+    @State private var isTargetedForDrop = false
 
     var body: some View {
         VStack(spacing: 12) {
             screenshotStatusBox
+            fileDropBox
 
             HStack {
                 Button {
@@ -21,6 +24,84 @@ struct CaptureView: View {
                 }
                 .disabled(state.screenshotStatus.isBusy)
             }
+        }
+    }
+
+    private var fileDropBox: some View {
+        RoundedRectangle(cornerRadius: 8)
+            .strokeBorder(
+                isTargetedForDrop ? Color.accentColor : Color.secondary.opacity(0.35),
+                style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])
+            )
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isTargetedForDrop ? Color.accentColor.opacity(0.08) : Color.clear)
+            )
+            .frame(height: 90)
+            .overlay {
+                VStack(spacing: 6) {
+                    Image(systemName: fileDropIcon)
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(fileDropTint)
+                    Text(fileDropTitle)
+                        .font(.callout.weight(.medium))
+                    Text(fileDropSubtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 12)
+                }
+            }
+            .onDrop(of: [.fileURL], isTargeted: $isTargetedForDrop) { providers in
+                handleDrop(providers: providers)
+            }
+    }
+
+    private func handleDrop(providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first else { return false }
+        _ = provider.loadObject(ofClass: URL.self) { url, _ in
+            guard let url else { return }
+            Task { @MainActor in
+                state.ingestDroppedFile(url: url)
+            }
+        }
+        return true
+    }
+
+    private var fileDropIcon: String {
+        switch state.fileUploadStatus {
+        case .uploading: return "arrow.up.doc"
+        case .completed: return "checkmark.circle.fill"
+        case .failed: return "exclamationmark.triangle.fill"
+        case .idle: return "doc.badge.plus"
+        }
+    }
+
+    private var fileDropTint: Color {
+        switch state.fileUploadStatus {
+        case .completed: return .green
+        case .failed: return .red
+        case .uploading: return .accentColor
+        case .idle: return isTargetedForDrop ? .accentColor : .secondary
+        }
+    }
+
+    private var fileDropTitle: String {
+        switch state.fileUploadStatus {
+        case .uploading: return "Uploading file"
+        case .completed: return "File saved"
+        case .failed: return "Upload failed"
+        case .idle: return isTargetedForDrop ? "Release to ingest" : "Drop a file to add to memory"
+        }
+    }
+
+    private var fileDropSubtitle: String {
+        switch state.fileUploadStatus {
+        case .uploading(let msg), .completed(let msg), .failed(let msg):
+            return msg
+        case .idle:
+            return "PDFs, text, code, JSON, markdown — summarized and stored."
         }
     }
 
