@@ -1,15 +1,26 @@
 import SwiftUI
 
 struct OnboardingView: View {
+    private let defaultFolders = ["Documents", "Desktop", "Downloads"]
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("ContextKit").font(.title)
-            Text("Paste your OpenAI API key in the menu bar popover, start the local server, then capture screenshots or clipboard text.")
+            Text("Click the brain icon in the menu bar to capture, search, and inspect your memory.")
                 .foregroundStyle(.secondary)
-            Button {
-                NSWorkspace.shared.open(URL(fileURLWithPath: NSHomeDirectory()))
-            } label: {
-                Label("Choose Allowed Folders", systemImage: "folder.badge.plus")
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Default folders").font(.subheadline).foregroundStyle(.secondary)
+                ForEach(defaultFolders, id: \.self) { name in
+                    Label(name, systemImage: "folder")
+                        .font(.callout)
+                }
+                Text("Custom folder permissions are coming soon.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, 4)
             }
         }
         .padding(24)

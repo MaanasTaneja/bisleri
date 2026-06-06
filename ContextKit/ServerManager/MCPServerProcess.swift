@@ -24,6 +24,7 @@ final class MCPServerProcess {
         if !trimmedKey.isEmpty {
             environment["OPENAI_API_KEY"] = trimmedKey
         }
+        environment["CONTEXTKIT_ALLOWED_FOLDERS"] = Self.defaultAllowedFolders()
         process.environment = environment
 
         do {
@@ -80,6 +81,13 @@ final class MCPServerProcess {
         if !pids.isEmpty {
             Thread.sleep(forTimeInterval: 0.2)
         }
+    }
+
+    private static func defaultAllowedFolders() -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return ["Documents", "Desktop", "Downloads"]
+            .map { home.appendingPathComponent($0).path }
+            .joined(separator: ":")
     }
 
     private static func resolvePython(repoRoot: URL) -> (executable: String, leadingArgs: [String]) {

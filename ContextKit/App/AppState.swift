@@ -15,7 +15,10 @@ final class AppState: ObservableObject {
         }
     }
     @Published var accessLog: [AccessLogEntry] = []
-    @Published var allowedFolders: [URL] = []
+    @Published var allowedFolders: [URL] = {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return ["Documents", "Desktop", "Downloads"].map { home.appendingPathComponent($0) }
+    }()
 
     let server = MCPServerProcess()
     let ingestion = IngestionPipeline()
