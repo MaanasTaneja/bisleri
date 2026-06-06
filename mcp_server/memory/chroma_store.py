@@ -154,6 +154,19 @@ class SQLiteMemoryStore:
             for row in rows
         ]
 
+    def get(self, memory_id: str) -> MemoryDocument | None:
+        with self._connect() as db:
+            db.row_factory = sqlite3.Row
+            row = db.execute("select * from memories where id = ?", (memory_id,)).fetchone()
+        if not row:
+            return None
+        return MemoryDocument(row["id"], row["collection"], row["text"], json.loads(row["metadata"]), row["timestamp"])
+
+    def delete(self, memory_id: str) -> bool:
+        with self._connect() as db:
+            cursor = db.execute("delete from memories where id = ?", (memory_id,))
+        return cursor.rowcount > 0
+
     @staticmethod
     def _cutoff(time_range: str) -> datetime:
         now = datetime.now(timezone.utc)
@@ -271,6 +284,26 @@ class ChromaMemoryStore:
             results.extend(self._get_results(name, raw))
         results.sort(key=lambda item: item.timestamp, reverse=True)
         return results[:limit]
+
+    def get(self, memory_id: str) -> MemoryDocument | None:
+        for name, collection in self.collections.items():
+            raw = collection.get(ids=[memory_id], include=["documents", "metadatas"])
+            results = self._get_results(name, raw)
+            if results:
+                return results[0]
+        return None
+
+    def delete(self, memory_id: str) -> bool:
+        deleted = False
+        for collection in self.collections.values():
+            try:
+                existing = collection.get(ids=[memory_id])
+                if existing.get("ids"):
+                    collection.delete(ids=[memory_id])
+                    deleted = True
+            except Exception:
+                continue
+        return deleted
 
     def normalize_collection(self, collection: str) -> str:
         return collection if collection in self.collections else "misc"

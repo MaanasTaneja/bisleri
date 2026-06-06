@@ -2,10 +2,12 @@ fastapi>=0.111
 uvicorn[standard]>=0.30
 pydantic>=2.7
 pytest>=8.2
+pytest-asyncio>=0.23
 httpx2>=0.28
 httpx>=0.27
 chromadb>=0.5
 Pillow>=10.0
+mcp>=1.0
 
 # Optional local embedding backend for a later production switch from the
 # deterministic hash embedder to sentence-transformers/all-MiniLM-L6-v2.

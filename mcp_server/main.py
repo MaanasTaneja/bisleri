@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import base64
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,7 @@ from mcp_server.access_log import AccessLogger
 from mcp_server.auth import AuthError, TokenAuth
 from mcp_server.config import ServerConfig
 from mcp_server.images import normalize_image_for_openai
+from mcp_server.mcp_sse import MemorySharingFlag, mount_mcp_sse
 from mcp_server.memory.chroma_store import create_store
 from mcp_server.ocr import OCRConfigurationError, OCRProcessor, SUPPORTED_IMAGE_TYPES
 from mcp_server.tools import ContextKitTools
@@ -29,16 +31,40 @@ def build_tools(config: ServerConfig) -> ContextKitTools:
 
 def create_app(config: ServerConfig):
     try:
-        from fastapi import Body, Depends, FastAPI, Header, HTTPException
+        from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request
+        from fastapi.responses import JSONResponse
         from pydantic import BaseModel, Field
     except ImportError as exc:  # pragma: no cover
         raise SystemExit("Install server dependencies with `pip install -r mcp_server/requirements.txt`.") from exc
 
     tools = build_tools(config)
     auth = TokenAuth(config.token)
+    sharing_flag = MemorySharingFlag()
     app = FastAPI(title="ContextKit Local MCP Server")
     screenshot_jobs: dict[str, dict[str, Any]] = {}
     active_screenshot_job_id: str | None = None
+
+    rate_limit_window = float(os.environ.get("CONTEXTKIT_MCP_RATE_WINDOW", "1.0"))
+    rate_limit_max = int(os.environ.get("CONTEXTKIT_MCP_RATE_MAX", "30"))
+    rate_limit_buckets: dict[str, list[float]] = {}
+
+    @app.middleware("http")
+    async def rate_limit_messages(request: Request, call_next):
+        if request.url.path.startswith("/messages/"):
+            from time import monotonic
+            key = request.client.host if request.client else "unknown"
+            now = monotonic()
+            bucket = rate_limit_buckets.setdefault(key, [])
+            cutoff = now - rate_limit_window
+            while bucket and bucket[0] < cutoff:
+                bucket.pop(0)
+            if len(bucket) >= rate_limit_max:
+                return JSONResponse(
+                    status_code=429,
+                    content={"error": "rate_limited", "detail": "too many MCP requests"},
+                )
+            bucket.append(now)
+        return await call_next(request)
 
     class IngestRequest(BaseModel):
         text: str
@@ -187,6 +213,11 @@ def create_app(config: ServerConfig):
     def access_log(limit: int = 50) -> list[dict[str, Any]]:
         return tools.access_log(limit)
 
+    @app.get("/mcp/status")
+    def mcp_status() -> dict[str, Any]:
+        return {"paused": sharing_flag.paused, "sse_url": f"http://{config.host}:{config.port}/sse"}
+
+    mount_mcp_sse(app, tools, sharing_flag)
     return app
 
 
