@@ -40,7 +40,7 @@ class SQLiteMemoryStore:
         self.mode = "fallback"
         self.location = str(db_path)
         self._init()
-        logger.info("ContextKit memory store: SQLite fallback active at %s", db_path)
+        logger.info("BrainDead memory store: SQLite fallback active at %s", db_path)
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.db_path)
@@ -194,24 +194,24 @@ class ChromaMemoryStore:
 
         self.path = path
         self.embedder = embedder or HashEmbedder()
-        host = os.environ.get("CONTEXTKIT_CHROMA_HOST")
-        port = os.environ.get("CONTEXTKIT_CHROMA_PORT", "8000")
+        host = os.environ.get("BRAINDEAD_CHROMA_HOST")
+        port = os.environ.get("BRAINDEAD_CHROMA_PORT", "8000")
         if host:
             self.mode = "http"
             self.location = f"{host}:{port}"
-            logger.info("ContextKit memory store: connecting to Chroma HTTP server at %s", self.location)
+            logger.info("BrainDead memory store: connecting to Chroma HTTP server at %s", self.location)
             self.client = chromadb.HttpClient(host=host, port=int(port))
         else:
             self.mode = "embedded"
             self.location = str(path.expanduser())
-            logger.info("ContextKit memory store: starting embedded Chroma at %s", self.location)
+            logger.info("BrainDead memory store: starting embedded Chroma at %s", self.location)
             self.client = chromadb.PersistentClient(path=str(path.expanduser()))
         self.backend = "chroma"
         self.collections = {}
         for name in normalize_collections(list(collections)):
             self.create_collection(name)
         logger.info(
-            "ContextKit memory store: Chroma is working in %s mode with collections: %s",
+            "BrainDead memory store: Chroma is working in %s mode with collections: %s",
             self.mode,
             ", ".join(self.collections),
         )
@@ -250,9 +250,9 @@ class ChromaMemoryStore:
         if collection not in self.collections:
             self.collections[collection] = self.client.get_or_create_collection(
                 name=collection,
-                metadata={"hnsw:space": "cosine", "contextkit_collection": collection},
+                metadata={"hnsw:space": "cosine", "braindead_collection": collection},
             )
-            logger.info("ContextKit memory store: Chroma collection ready: %s", collection)
+            logger.info("BrainDead memory store: Chroma collection ready: %s", collection)
         return collection
 
     def list_collections(self) -> list[str]:
@@ -366,7 +366,7 @@ def create_store(
         try:
             return ChromaMemoryStore(chroma_path or db_path.parent / "chroma", collections=collections)
         except Exception as exc:
-            logger.warning("ContextKit memory store: Chroma unavailable, falling back to SQLite: %s", exc)
+            logger.warning("BrainDead memory store: Chroma unavailable, falling back to SQLite: %s", exc)
     else:
-        logger.info("ContextKit memory store: Chroma disabled by CONTEXTKIT_USE_CHROMA=0")
+        logger.info("BrainDead memory store: Chroma disabled by BRAINDEAD_USE_CHROMA=0")
     return SQLiteMemoryStore(db_path, collections=collections)

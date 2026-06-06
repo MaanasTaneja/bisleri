@@ -17,14 +17,14 @@ class ServerConfig:
     host: str = "127.0.0.1"
     port: int = 3847
     token: str = "dev-token"
-    home: Path = field(default_factory=lambda: Path(os.environ.get("CONTEXTKIT_HOME", "~/.contextkit")).expanduser())
+    home: Path = field(default_factory=lambda: Path(os.environ.get("BRAINDEAD_HOME", "~/.braindead")).expanduser())
     allowed_folders: tuple[Path, ...] = field(default_factory=tuple)
     enabled_collections: tuple[str, ...] = COLLECTIONS
     use_chroma: bool = True
 
     @property
     def db_path(self) -> Path:
-        return self.home / "contextkit.sqlite3"
+        return self.home / "braindead.sqlite3"
 
     @property
     def chroma_path(self) -> Path:
@@ -42,15 +42,15 @@ class ServerConfig:
     def from_env(cls, port: int | None = None, token: str | None = None) -> "ServerConfig":
         folders = tuple(
             Path(item).expanduser()
-            for item in os.environ.get("CONTEXTKIT_ALLOWED_FOLDERS", "").split(os.pathsep)
+            for item in os.environ.get("BRAINDEAD_ALLOWED_FOLDERS", "").split(os.pathsep)
             if item
         )
         return cls(
-            host=os.environ.get("CONTEXTKIT_HOST", "127.0.0.1"),
-            port=port or int(os.environ.get("CONTEXTKIT_PORT", "3847")),
-            token=token or os.environ.get("CONTEXTKIT_TOKEN", "dev-token"),
+            host=os.environ.get("BRAINDEAD_HOST", "127.0.0.1"),
+            port=port or int(os.environ.get("BRAINDEAD_PORT", "3847")),
+            token=token or os.environ.get("BRAINDEAD_TOKEN", "dev-token"),
             allowed_folders=folders,
-            use_chroma=os.environ.get("CONTEXTKIT_USE_CHROMA", "1") != "0",
+            use_chroma=os.environ.get("BRAINDEAD_USE_CHROMA", "1") != "0",
         )
 
     def prepare(self) -> None:

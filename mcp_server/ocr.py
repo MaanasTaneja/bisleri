@@ -25,7 +25,7 @@ def build_ocr_response_schema(collections: tuple[str, ...] = COLLECTIONS) -> dic
             "collection": {
                 "type": "string",
                 "enum": list(normalize_collections(list(collections))),
-                "description": "The ContextKit memory collection this screenshot belongs in.",
+                "description": "The BrainDead memory collection this screenshot belongs in.",
             },
             "summary": {
                 "type": "string",
@@ -85,7 +85,7 @@ class OCRProcessor:
             "text": {
                 "format": {
                     "type": "json_schema",
-                    "name": "contextkit_screenshot_ocr",
+                    "name": "braindead_screenshot_ocr",
                     "strict": True,
                     "schema": build_ocr_response_schema(self.collections),
                 }
@@ -97,7 +97,7 @@ class OCRProcessor:
                         {
                             "type": "input_text",
                             "text": (
-                                "You are ContextKit's local screenshot OCR and classifier. "
+                                "You are BrainDead's local screenshot OCR and classifier. "
                                 "Extract visible text and summarize what is happening in the picture and classify screenshots for a private local memory database."
                             ),
                         }

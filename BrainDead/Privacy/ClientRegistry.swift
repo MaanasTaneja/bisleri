@@ -2,7 +2,7 @@ import Foundation
 
 final class ClientRegistry {
     func token(for client: ConnectedClient) -> String {
-        let key = "contextkit.token.\(client.name)"
+        let key = "braindead.token.\(client.name)"
         if let existing = KeychainStore.string(for: key) {
             return existing
         }
@@ -12,6 +12,6 @@ final class ClientRegistry {
     }
 
     func revoke(_ client: ConnectedClient) {
-        KeychainStore.delete("contextkit.token.\(client.name)")
+        KeychainStore.delete("braindead.token.\(client.name)")
     }
 }

@@ -1,3 +1,3 @@
-from mcp_server.tools.registry import ContextKitTools
+from mcp_server.tools.registry import BrainDeadTools
 
-__all__ = ["ContextKitTools"]
+__all__ = ["BrainDeadTools"]

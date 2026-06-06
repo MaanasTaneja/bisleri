@@ -22,7 +22,7 @@ from mcp_server.images import normalize_image_for_openai
 from mcp_server.mcp_sse import MemorySharingFlag, mount_mcp_sse
 from mcp_server.memory.chroma_store import create_store
 from mcp_server.ocr import OCRConfigurationError, OCRProcessor, SUPPORTED_IMAGE_TYPES
-from mcp_server.tools import ContextKitTools
+from mcp_server.tools import BrainDeadTools
 
 logger = logging.getLogger(__name__)
 
@@ -69,12 +69,12 @@ class _MessagesRateLimitMiddleware:
         await self.app(scope, receive, send)
 
 
-def build_tools(config: ServerConfig) -> ContextKitTools:
+def build_tools(config: ServerConfig) -> BrainDeadTools:
     config.prepare()
     store = create_store(config.db_path, config.use_chroma, config.chroma_path, collections=config.load_collections())
     access_logger = AccessLogger(config.db_path)
-    tools = ContextKitTools(config, store, access_logger)
-    logger.info("ContextKit server memory status: %s", tools.memory_status())
+    tools = BrainDeadTools(config, store, access_logger)
+    logger.info("BrainDead server memory status: %s", tools.memory_status())
     return tools
 
 
@@ -88,12 +88,12 @@ def create_app(config: ServerConfig):
     tools = build_tools(config)
     auth = TokenAuth(config.token)
     sharing_flag = MemorySharingFlag()
-    app = FastAPI(title="ContextKit Local MCP Server")
+    app = FastAPI(title="BrainDead Local MCP Server")
     screenshot_jobs: dict[str, dict[str, Any]] = {}
     active_screenshot_job_id: str | None = None
 
-    rate_limit_window = float(os.environ.get("CONTEXTKIT_MCP_RATE_WINDOW", "1.0"))
-    rate_limit_max = int(os.environ.get("CONTEXTKIT_MCP_RATE_MAX", "30"))
+    rate_limit_window = float(os.environ.get("BRAINDEAD_MCP_RATE_WINDOW", "1.0"))
+    rate_limit_max = int(os.environ.get("BRAINDEAD_MCP_RATE_MAX", "30"))
 
     app.add_middleware(
         _MessagesRateLimitMiddleware,
@@ -199,7 +199,7 @@ def create_app(config: ServerConfig):
 
     @app.get("/health")
     def health() -> dict[str, Any]:
-        return {"ok": True, "service": "contextkit", "port": config.port, "memory": tools.memory_status()}
+        return {"ok": True, "service": "braindead", "port": config.port, "memory": tools.memory_status()}
 
     @app.get("/collections", dependencies=[Depends(require_auth)])
     def list_collections() -> list[str]:
@@ -309,7 +309,7 @@ def _write_screenshot(config: ServerConfig, image_bytes: bytes, mime_type: str) 
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    parser = argparse.ArgumentParser(description="Run the ContextKit local MCP server.")
+    parser = argparse.ArgumentParser(description="Run the BrainDead local MCP server.")
     parser.add_argument("--port", type=int)
     parser.add_argument("--token")
     args = parser.parse_args()

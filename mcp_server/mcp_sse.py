@@ -1,8 +1,8 @@
 """MCP server over SSE, mounted alongside the FastAPI REST surface.
 
-Exposes the ContextKit tool surface to standard MCP clients (Claude Desktop,
+Exposes the BrainDead tool surface to standard MCP clients (Claude Desktop,
 ChatGPT via Secure MCP Tunnel) by translating JSON-RPC tool calls into the
-existing ContextKitTools methods. The transport follows the MCP SDK pattern:
+existing BrainDeadTools methods. The transport follows the MCP SDK pattern:
 
   GET  /sse        — SSE stream for server-to-client messages
   POST /messages/  — client-to-server JSON-RPC payloads
@@ -17,7 +17,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from mcp_server.tools import ContextKitTools
+from mcp_server.tools import BrainDeadTools
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ _TOOL_SPECS: list[dict[str, Any]] = [
     {
         "name": "search_memory",
         "description": (
-            "Search the user's personal ContextKit memory (their files, "
+            "Search the user's personal BrainDead memory (their files, "
             "clipboard, screenshots, browser captures, uploaded documents, "
             "and notes). ALWAYS call this before answering any question "
             "that touches the user's own files, preferences, prior "
@@ -70,7 +70,7 @@ _TOOL_SPECS: list[dict[str, Any]] = [
     {
         "name": "save_memory",
         "description": (
-            "Save text to the user's ContextKit memory so they can recall it "
+            "Save text to the user's BrainDead memory so they can recall it "
             "later. Use proactively — whenever the user shares a preference, "
             "fact about themselves, decision, or anything they may want to "
             "find later ('remember that...', 'note that...', 'I prefer...', "
@@ -88,7 +88,7 @@ _TOOL_SPECS: list[dict[str, Any]] = [
     {
         "name": "list_sources",
         "description": (
-            "List which folders ContextKit is allowed to index and which "
+            "List which folders BrainDead is allowed to index and which "
             "memory collections exist (filesystem, messages, browser, misc, "
             "and any custom). Call when the user asks 'what can you see', "
             "'what memory do I have', or before suggesting a search scope."
@@ -130,7 +130,7 @@ _TOOL_SPECS: list[dict[str, Any]] = [
     {
         "name": "pause_memory_sharing",
         "description": (
-            "Toggle ContextKit's memory access on or off. Call when the user "
+            "Toggle BrainDead's memory access on or off. Call when the user "
             "asks for privacy, says 'don't read my memory', or wants to "
             "resume sharing."
         ),
@@ -149,12 +149,12 @@ def tool_specs() -> list[dict[str, Any]]:
 
 
 def dispatch_tool(
-    tools: ContextKitTools,
+    tools: BrainDeadTools,
     flag: MemorySharingFlag,
     name: str,
     arguments: dict[str, Any] | None,
 ) -> Any:
-    """Translate an MCP tool call into a ContextKitTools method.
+    """Translate an MCP tool call into a BrainDeadTools method.
 
     Centralised so the SSE handler and the test suite share the same
     permission/pause logic.
@@ -187,7 +187,7 @@ def dispatch_tool(
     raise ValueError(f"unknown tool: {name}")
 
 
-def mount_mcp_sse(app, tools: ContextKitTools, flag: MemorySharingFlag) -> None:
+def mount_mcp_sse(app, tools: BrainDeadTools, flag: MemorySharingFlag) -> None:
     """Attach MCP SSE + /messages/ routes to an existing FastAPI app.
 
     Soft-imports the mcp SDK so the rest of the server still boots if it
@@ -203,18 +203,18 @@ def mount_mcp_sse(app, tools: ContextKitTools, flag: MemorySharingFlag) -> None:
         return
 
     instructions = (
-        "ContextKit is the user's local, private memory: their files, "
+        "BrainDead is the user's local, private memory: their files, "
         "clipboard, screenshots, browser captures, and notes. When the "
         "user asks anything about their own data, preferences, prior "
         "context, recent activity, or wants to remember/recall something, "
-        "use the ContextKit tools (search_memory, get_recent_context, "
+        "use the BrainDead tools (search_memory, get_recent_context, "
         "save_memory, list_sources) BEFORE answering from general "
         "knowledge. Be proactive: search first, ask second."
     )
     try:
-        server = Server("contextkit", instructions=instructions)
+        server = Server("braindead", instructions=instructions)
     except TypeError:
-        server = Server("contextkit")
+        server = Server("braindead")
 
     @server.list_tools()
     async def _list_tools() -> list[Tool]:
@@ -262,4 +262,4 @@ def mount_mcp_sse(app, tools: ContextKitTools, flag: MemorySharingFlag) -> None:
 
     app.router.routes.append(Route("/sse", endpoint=sse_endpoint, methods=["GET"]))
     app.router.routes.append(Mount("/messages/", app=transport.handle_post_message))
-    logger.info("ContextKit MCP SSE routes mounted at /sse and /messages/")
+    logger.info("BrainDead MCP SSE routes mounted at /sse and /messages/")

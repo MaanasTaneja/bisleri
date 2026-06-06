@@ -40,6 +40,14 @@ struct MemoryViewerView: View {
     private var graphPane: some View {
         ZStack {
             Color(nsColor: .underPageBackgroundColor)
+                .overlay {
+                    LinearGradient(
+                        colors: [.accentColor.opacity(0.05), .clear, .accentColor.opacity(0.02)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                }
+            
             GeometryReader { proxy in
                 GraphCanvas(
                     collections: model.collections,
@@ -47,36 +55,44 @@ struct MemoryViewerView: View {
                     selected: selectedCollection,
                     size: proxy.size,
                     onSelect: { name in
-                        selectedCollection = name
-                        selectedItem = nil
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            selectedCollection = name
+                            selectedItem = nil
+                        }
                     },
                     onCenterTap: {
-                        selectedCollection = nil
-                        selectedItem = nil
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            selectedCollection = nil
+                            selectedItem = nil
+                        }
                     }
                 )
             }
+            
             if let error = model.errorMessage {
                 VStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle")
+                    Image(systemName: "exclamationmark.triangle.fill")
                         .font(.title2)
+                        .foregroundStyle(.orange)
                     Text(error)
                         .font(.caption)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 24)
                 }
-                .foregroundStyle(.secondary)
+                .padding(16)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .padding(24)
             } else if model.items.isEmpty && !model.isLoading {
-                VStack(spacing: 6) {
+                VStack(spacing: 8) {
                     Text("No memories yet")
                         .font(.headline)
                     Text("Start the server and capture something.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                .padding()
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-                .padding(.bottom, 16)
+                .padding(16)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .padding(.bottom, 32)
                 .frame(maxHeight: .infinity, alignment: .bottom)
             }
         }
@@ -97,76 +113,115 @@ struct MemoryViewerView: View {
     }
 
     private func detailHeader(for collection: String) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             Circle()
-                .fill(collectionPalette[collection] ?? .gray)
-                .frame(width: 14, height: 14)
-            Text(collection.capitalized)
-                .font(.title3.weight(.semibold))
+                .fill(collectionColor(collection))
+                .frame(width: 12, height: 12)
+                .shadow(color: collectionColor(collection).opacity(0.35), radius: 4)
+            
+            Text(collectionTitle(collection))
+                .font(.title2.weight(.bold))
+            
             Spacer()
+            
             Text("\(model.counts[collection] ?? 0) items")
-                .font(.caption)
+                .font(.subheadline.monospacedDigit())
                 .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.quaternary.opacity(0.5), in: Capsule())
         }
-        .padding(16)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 24)
     }
 
     private func itemList(for collection: String) -> some View {
         let items = model.items.filter { $0.collection == collection }
         return ScrollView {
-            LazyVStack(alignment: .leading, spacing: 8) {
+            LazyVStack(alignment: .leading, spacing: 12) {
                 ForEach(items) { item in
                     MemoryRow(item: item, isExpanded: selectedItem?.id == item.id) {
-                        if selectedItem?.id == item.id {
-                            selectedItem = nil
-                        } else {
-                            selectedItem = item
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                            if selectedItem?.id == item.id {
+                                selectedItem = nil
+                            } else {
+                                selectedItem = item
+                            }
                         }
                     }
                 }
                 if items.isEmpty {
-                    Text("No items in this collection.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 24)
+                    VStack(spacing: 12) {
+                        Image(systemName: "tray")
+                            .font(.largeTitle)
+                            .foregroundStyle(.tertiary)
+                        Text("No items in this collection.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 60)
                 }
             }
-            .padding(16)
+            .padding(20)
         }
     }
 
     private var summaryView: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Your memory at a glance")
-                .font(.title3.weight(.semibold))
-            Text("Click a collection node to inspect what is stored there.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            Divider()
-            createCollectionControl
-            Divider()
-            ForEach(model.collections, id: \.self) { name in
-                HStack {
-                    Circle()
-                        .fill(collectionColor(name))
-                        .frame(width: 10, height: 10)
-                    Text(collectionTitle(name))
-                    Spacer()
-                    Text("\(model.counts[name] ?? 0)")
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-                .font(.callout)
+        VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Memory Overview")
+                    .font(.title.weight(.bold))
+                Text("Select a node to explore stored context.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
+            
+            Divider()
+            
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Quick Actions")
+                    .font(.headline)
+                createCollectionControl
+            }
+            
+            Divider()
+            
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Collections")
+                    .font(.headline)
+                
+                ForEach(model.collections, id: \.self) { name in
+                    Button {
+                        withAnimation { selectedCollection = name }
+                    } label: {
+                        HStack {
+                            Circle()
+                                .fill(collectionColor(name))
+                                .frame(width: 8, height: 8)
+                            Text(collectionTitle(name))
+                                .font(.body)
+                            Spacer()
+                            Text("\(model.counts[name] ?? 0)")
+                                .font(.body.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            
             Spacer()
         }
-        .padding(20)
+        .padding(28)
     }
 
     private var createCollectionControl: some View {
         HStack(spacing: 8) {
-            TextField("New collection", text: $newCollectionName)
+            TextField("Collection name...", text: $newCollectionName)
                 .textFieldStyle(.roundedBorder)
+                .controlSize(.large)
                 .onSubmit {
                     Task { await createCollection() }
                 }
@@ -174,10 +229,11 @@ struct MemoryViewerView: View {
                 Task { await createCollection() }
             } label: {
                 Image(systemName: "plus")
+                    .font(.headline)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
             .disabled(model.isCreatingCollection || newCollectionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .help("Create Collection")
         }
     }
 
@@ -198,54 +254,82 @@ private struct MemoryRow: View {
     let onTap: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text(item.summary)
-                        .font(.callout)
+                        .font(.headline.weight(.medium))
                         .lineLimit(isExpanded ? nil : 2)
-                    HStack(spacing: 6) {
-                        Text(item.source)
-                            .font(.caption2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    
+                    HStack(spacing: 8) {
+                        Text(item.source.uppercased())
+                            .font(.system(size: 9, weight: .bold))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color.accentColor.opacity(0.15), in: Capsule())
+                            .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+                            .foregroundStyle(Color.accentColor)
+                        
                         Text(formattedTimestamp)
                             .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.tertiary)
                     }
                 }
+                
                 Spacer()
-                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                
+                Image(systemName: isExpanded ? "chevron.up.circle.fill" : "chevron.down.circle")
+                    .font(.body)
+                    .foregroundStyle(.secondary.opacity(0.6))
+                    .imageScale(.large)
             }
+            
             if isExpanded {
-                Divider()
-                Text(item.text)
-                    .font(.callout)
-                    .textSelection(.enabled)
-                if !item.metadata.isEmpty {
-                    Text("Metadata")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 4)
-                    ForEach(item.metadata.keys.sorted(), id: \.self) { key in
-                        HStack(alignment: .top) {
-                            Text(key)
-                                .font(.caption.monospaced())
+                VStack(alignment: .leading, spacing: 12) {
+                    Divider()
+                    
+                    Text(item.text)
+                        .font(.body)
+                        .lineSpacing(4)
+                        .textSelection(.enabled)
+                        .foregroundStyle(.primary.opacity(0.9))
+                    
+                    if !item.metadata.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Metadata")
+                                .font(.caption.weight(.bold))
                                 .foregroundStyle(.secondary)
-                                .frame(width: 110, alignment: .leading)
-                            Text(item.metadata[key]?.displayString ?? "")
-                                .font(.caption.monospaced())
-                                .textSelection(.enabled)
+                                .padding(.top, 4)
+                            
+                            ForEach(item.metadata.keys.sorted(), id: \.self) { key in
+                                HStack(alignment: .top, spacing: 8) {
+                                    Text(key)
+                                        .font(.system(.caption2, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 100, alignment: .leading)
+                                    
+                                    Text(item.metadata[key]?.displayString ?? "")
+                                        .font(.system(.caption2, design: .monospaced))
+                                        .foregroundStyle(.primary)
+                                        .textSelection(.enabled)
+                                }
+                            }
                         }
+                        .padding(10)
+                        .background(.quaternary.opacity(0.2), in: RoundedRectangle(cornerRadius: 8))
                     }
                 }
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .padding(12)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+        .padding(16)
+        .background {
+            RoundedRectangle(cornerRadius: 16)
+                .fill(isExpanded ? Color(nsColor: .controlBackgroundColor) : Color.clear)
+            
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(isExpanded ? Color.accentColor.opacity(0.3) : .secondary.opacity(0.1), lineWidth: 1)
+        }
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
     }
@@ -253,7 +337,7 @@ private struct MemoryRow: View {
     private var formattedTimestamp: String {
         guard let date = ISO8601DateFormatter().date(from: item.timestamp) else { return item.timestamp }
         let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
+        formatter.unitsStyle = .full
         return formatter.localizedString(for: date, relativeTo: Date())
     }
 }
@@ -268,7 +352,9 @@ private struct GraphCanvas: View {
 
     var body: some View {
         let center = CGPoint(x: size.width / 2, y: size.height / 2)
-        let radius = min(size.width, size.height) * 0.32
+        // Responsive radius that scales with window size but keeps nodes far apart
+        let minDim = min(size.width, size.height)
+        let radius = max(minDim * 0.32, 140)
 
         ZStack {
             ForEach(Array(collections.enumerated()), id: \.element) { index, name in
@@ -295,6 +381,7 @@ private struct GraphCanvas: View {
     }
 
     private func nodePosition(index: Int, total: Int, center: CGPoint, radius: CGFloat) -> CGPoint {
+        // Add a bit of jitter or offset if there are too many nodes
         let angle: CGFloat = (2 * .pi / CGFloat(total)) * CGFloat(index) - .pi / 2
         return CGPoint(
             x: center.x + cos(angle) * radius,
@@ -314,9 +401,10 @@ private struct ConnectionLine: View {
             path.addLine(to: to)
         }
         .stroke(
-            isActive ? Color.accentColor : Color.secondary.opacity(0.35),
-            style: StrokeStyle(lineWidth: isActive ? 2.5 : 1.5, lineCap: .round)
+            isActive ? Color.accentColor : Color.secondary.opacity(0.15),
+            style: StrokeStyle(lineWidth: isActive ? 3 : 1, lineCap: .round)
         )
+        .animation(.spring(response: 0.3), value: isActive)
     }
 }
 
@@ -326,20 +414,29 @@ private struct CenterNode: View {
     var body: some View {
         ZStack {
             Circle()
-                .fill(Color.accentColor.opacity(isActive ? 0.28 : 0.18))
-                .frame(width: 110, height: 110)
+                .fill(Color.accentColor.opacity(isActive ? 0.2 : 0.1))
+                .frame(width: 120, height: 120)
+                .blur(radius: 8)
+                
             Circle()
-                .stroke(Color.accentColor, lineWidth: isActive ? 3 : 2)
-                .frame(width: 84, height: 84)
-            VStack(spacing: 2) {
+                .fill(.ultraThinMaterial)
+                .frame(width: 90, height: 90)
+                .overlay {
+                    Circle()
+                        .stroke(Color.accentColor.opacity(0.5), lineWidth: 1)
+                }
+            
+            VStack(spacing: 4) {
                 Image(systemName: "brain.head.profile")
-                    .font(.system(size: 28, weight: .semibold))
+                    .font(.system(size: 32, weight: .bold))
                     .foregroundStyle(Color.accentColor)
-                Text("ContextKit")
-                    .font(.caption.weight(.semibold))
+                Text("BrainDead")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(Color.accentColor)
             }
         }
-        .contentShape(Circle())
+        .scaleEffect(isActive ? 0.9 : 1.0)
+        .animation(.spring(response: 0.35, dampingFraction: 0.7), value: isActive)
     }
 }
 
@@ -350,25 +447,41 @@ private struct CollectionNode: View {
 
     var body: some View {
         let color = collectionColor(name)
-        VStack(spacing: 4) {
+        VStack(spacing: 8) {
             ZStack {
                 Circle()
-                    .fill(color.opacity(isSelected ? 0.35 : 0.18))
-                    .frame(width: 78, height: 78)
+                    .fill(color.opacity(isSelected ? 0.25 : 0.15))
+                    .frame(width: 84, height: 84)
+                
                 Circle()
-                    .stroke(color, lineWidth: isSelected ? 3 : 1.5)
-                    .frame(width: 66, height: 66)
-                Text("\(count)")
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(color)
+                    .fill(.ultraThinMaterial)
+                    .frame(width: 70, height: 70)
+                    .overlay {
+                        Circle()
+                            .stroke(color.opacity(isSelected ? 0.8 : 0.3), lineWidth: isSelected ? 3 : 1)
+                    }
+                
+                VStack(spacing: 0) {
+                    Text("\(count)")
+                        .font(.title2.weight(.bold))
+                        .foregroundStyle(color)
+                    Text("items")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(color.opacity(0.7))
+                }
             }
+            .shadow(color: color.opacity(isSelected ? 0.3 : 0), radius: 10)
+            
             Text(collectionTitle(name))
-                .font(.caption.weight(.semibold))
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(isSelected ? .primary : .secondary)
                 .lineLimit(1)
-                .frame(width: 96)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 2)
+                .background(isSelected ? color.opacity(0.1) : .clear, in: Capsule())
         }
-        .scaleEffect(isSelected ? 1.05 : 1.0)
-        .animation(.easeInOut(duration: 0.15), value: isSelected)
+        .scaleEffect(isSelected ? 1.15 : 1.0)
+        .animation(.spring(response: 0.4, dampingFraction: 0.65), value: isSelected)
     }
 }
 

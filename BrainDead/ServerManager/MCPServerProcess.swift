@@ -24,7 +24,7 @@ final class MCPServerProcess {
         if !trimmedKey.isEmpty {
             environment["OPENAI_API_KEY"] = trimmedKey
         }
-        environment["CONTEXTKIT_ALLOWED_FOLDERS"] = Self.defaultAllowedFolders()
+        environment["BRAINDEAD_ALLOWED_FOLDERS"] = Self.defaultAllowedFolders()
         process.environment = environment
 
         do {

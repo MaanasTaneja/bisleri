@@ -409,7 +409,7 @@ def test_create_store_logs_sqlite_fallback(monkeypatch, tmp_path, caplog):
     monkeypatch.setitem(sys.modules, "chromadb", None)
 
     with caplog.at_level("INFO"):
-        store = create_store(tmp_path / "contextkit.sqlite3", use_chroma=True, chroma_path=tmp_path / "chroma")
+        store = create_store(tmp_path / "braindead.sqlite3", use_chroma=True, chroma_path=tmp_path / "chroma")
 
     assert store.backend == "sqlite"
     assert "Chroma unavailable, falling back to SQLite" in caplog.text

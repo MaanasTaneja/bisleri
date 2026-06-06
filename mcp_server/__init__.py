@@ -1,1 +1,1 @@
-"""ContextKit local MCP server package."""
+"""BrainDead local MCP server package."""

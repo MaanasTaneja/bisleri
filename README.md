@@ -1,12 +1,12 @@
-# ContextKit
+# BrainDead
 
 One context, everywhere. Your memory stays on your Mac.
 
-ContextKit is a macOS menu bar app plus a local MCP server. It captures selected context from your Mac, stores it locally, and exposes only relevant snippets to AI clients through authenticated localhost tools.
+BrainDead is a macOS menu bar app plus a local MCP server. It captures selected context from your Mac, stores it locally, and exposes only relevant snippets to AI clients through authenticated localhost tools.
 
 ## What is in this repo
 
-- `ContextKit/`: macOS SwiftUI source scaffold for the menu bar app, capture flows, privacy controls, and server process management.
+- `BrainDead/`: macOS SwiftUI source scaffold for the menu bar app, capture flows, privacy controls, and server process management.
 - `mcp_server/`: Python local MCP/HTTP server, memory storage, auth, access logging, and tool implementations.
 - `tests/`: Python verification for the local memory server behavior.
 - `docs/tickets.md`: the implementation ticket breakdown mirrored to GitHub issues.
@@ -28,15 +28,15 @@ By default, memory uses ChromaDB and creates the planned collections:
 - `browser`
 - `misc`
 
-Embedded Chroma persists under `~/.contextkit/chroma`. To point at a local Chroma daemon running in Docker instead:
+Embedded Chroma persists under `~/.braindead/chroma`. To point at a local Chroma daemon running in Docker instead:
 
 ```bash
-export CONTEXTKIT_CHROMA_HOST=127.0.0.1
-export CONTEXTKIT_CHROMA_PORT=8000
+export BRAINDEAD_CHROMA_HOST=127.0.0.1
+export BRAINDEAD_CHROMA_PORT=8000
 python -m mcp_server.main --port 3847 --token dev-token
 ```
 
-Set `CONTEXTKIT_USE_CHROMA=0` only when you intentionally want the SQLite fallback for lightweight testing.
+Set `BRAINDEAD_USE_CHROMA=0` only when you intentionally want the SQLite fallback for lightweight testing.
 
 Screenshot OCR is handled by the Python server. Set `OPENAI_API_KEY` in the server environment, or paste the key into the Swift menu bar popover before pressing Start. The Swift app passes that key to the Python subprocess as `OPENAI_API_KEY`.
 
@@ -77,5 +77,5 @@ The tests cover the Chroma collection creation/routing path with a fake Chroma c
 
 - Server binds to `127.0.0.1` by default.
 - Bearer token auth is required for all ingest and tool endpoints.
-- Chroma memory, metadata, screenshots, and access logs live under `~/.contextkit` unless `CONTEXTKIT_HOME` is set.
+- Chroma memory, metadata, screenshots, and access logs live under `~/.braindead` unless `BRAINDEAD_HOME` is set.
 - The Swift app owns server lifecycle and can stop the process from the menu bar.

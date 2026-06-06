@@ -2,15 +2,15 @@
 import PackageDescription
 
 let package = Package(
-    name: "ContextKit",
+    name: "BrainDead",
     platforms: [.macOS(.v13)],
     products: [
-        .executable(name: "ContextKit", targets: ["ContextKit"])
+        .executable(name: "BrainDead", targets: ["BrainDead"])
     ],
     targets: [
         .executableTarget(
-            name: "ContextKit",
-            path: "ContextKit",
+            name: "BrainDead",
+            path: "BrainDead",
             exclude: [],
             resources: []
         )

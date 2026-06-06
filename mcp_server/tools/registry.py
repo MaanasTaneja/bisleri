@@ -19,7 +19,7 @@ class ToolResult:
     score: float = 0.0
 
 
-class ContextKitTools:
+class BrainDeadTools:
     def __init__(self, config: ServerConfig, store: SQLiteMemoryStore, access_logger: AccessLogger) -> None:
         self.config = config
         self.store = store

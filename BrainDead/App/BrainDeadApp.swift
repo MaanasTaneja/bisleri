@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct ContextKitApp: App {
+struct BrainDeadApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {

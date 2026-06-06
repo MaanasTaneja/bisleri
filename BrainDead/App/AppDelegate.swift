@@ -7,11 +7,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var appState: AppState!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        ProcessInfo.processInfo.disableAutomaticTermination("ContextKit continues running from the menu bar.")
+        ProcessInfo.processInfo.disableAutomaticTermination("BrainDead continues running from the menu bar.")
         appState = AppState()
         NSApp.setActivationPolicy(.accessory)
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(systemSymbolName: "brain.head.profile", accessibilityDescription: "ContextKit")
+        item.button?.image = NSImage(systemSymbolName: "brain.head.profile", accessibilityDescription: "BrainDead")
         item.button?.action = #selector(togglePopover)
         item.button?.target = self
         statusItem = item

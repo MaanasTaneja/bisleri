@@ -105,7 +105,7 @@ def _summary_schema(collections: tuple[str, ...]) -> dict[str, Any]:
             "collection": {
                 "type": "string",
                 "enum": list(normalize_collections(list(collections))),
-                "description": "ContextKit memory collection this file belongs in.",
+                "description": "BrainDead memory collection this file belongs in.",
             },
             "summary": {
                 "type": "string",
@@ -144,7 +144,7 @@ async def summarize_file(
         "text": {
             "format": {
                 "type": "json_schema",
-                "name": "contextkit_file_summary",
+                "name": "braindead_file_summary",
                 "strict": True,
                 "schema": _summary_schema(allowed),
             }
@@ -156,7 +156,7 @@ async def summarize_file(
                     {
                         "type": "input_text",
                         "text": (
-                            "You are ContextKit's local file ingestor. "
+                            "You are BrainDead's local file ingestor. "
                             "Read the file contents, produce a concise one or two sentence summary, "
                             "and classify the file into a memory collection."
                         ),
