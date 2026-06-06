@@ -87,7 +87,7 @@ class OCRProcessor:
                             "type": "input_text",
                             "text": (
                                 "You are ContextKit's local screenshot OCR and classifier. "
-                                "Extract visible text and classify screenshots for a private local memory database."
+                                "Extract visible text and summarize what is happening in the picture and classify screenshots for a private local memory database."
                             ),
                         }
                     ],
