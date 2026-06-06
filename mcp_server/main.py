@@ -20,6 +20,48 @@ from mcp_server.tools import ContextKitTools
 logger = logging.getLogger(__name__)
 
 
+class _MessagesRateLimitMiddleware:
+    """Per-client token-bucket rate limit for /messages/ as raw ASGI middleware.
+
+    Implemented at ASGI level (not via FastAPI's BaseHTTPMiddleware) because
+    BaseHTTPMiddleware buffers response bodies, which breaks SSE and the
+    streaming responses the MCP transport emits from /sse and /messages/.
+    """
+
+    def __init__(self, app, window: float, max_requests: int) -> None:
+        self.app = app
+        self.window = window
+        self.max_requests = max_requests
+        self.buckets: dict[str, list[float]] = {}
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope.get("type") != "http" or not scope.get("path", "").startswith("/messages/"):
+            await self.app(scope, receive, send)
+            return
+
+        from time import monotonic
+        client = scope.get("client") or ("unknown", 0)
+        key = client[0]
+        now = monotonic()
+        bucket = self.buckets.setdefault(key, [])
+        cutoff = now - self.window
+        while bucket and bucket[0] < cutoff:
+            bucket.pop(0)
+        if len(bucket) >= self.max_requests:
+            await send({
+                "type": "http.response.start",
+                "status": 429,
+                "headers": [(b"content-type", b"application/json")],
+            })
+            await send({
+                "type": "http.response.body",
+                "body": b'{"error":"rate_limited","detail":"too many MCP requests"}',
+            })
+            return
+        bucket.append(now)
+        await self.app(scope, receive, send)
+
+
 def build_tools(config: ServerConfig) -> ContextKitTools:
     config.prepare()
     store = create_store(config.db_path, config.use_chroma, config.chroma_path, collections=config.load_collections())
@@ -31,8 +73,7 @@ def build_tools(config: ServerConfig) -> ContextKitTools:
 
 def create_app(config: ServerConfig):
     try:
-        from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request
-        from fastapi.responses import JSONResponse
+        from fastapi import Body, Depends, FastAPI, Header, HTTPException
         from pydantic import BaseModel, Field
     except ImportError as exc:  # pragma: no cover
         raise SystemExit("Install server dependencies with `pip install -r mcp_server/requirements.txt`.") from exc
@@ -46,25 +87,12 @@ def create_app(config: ServerConfig):
 
     rate_limit_window = float(os.environ.get("CONTEXTKIT_MCP_RATE_WINDOW", "1.0"))
     rate_limit_max = int(os.environ.get("CONTEXTKIT_MCP_RATE_MAX", "30"))
-    rate_limit_buckets: dict[str, list[float]] = {}
 
-    @app.middleware("http")
-    async def rate_limit_messages(request: Request, call_next):
-        if request.url.path.startswith("/messages/"):
-            from time import monotonic
-            key = request.client.host if request.client else "unknown"
-            now = monotonic()
-            bucket = rate_limit_buckets.setdefault(key, [])
-            cutoff = now - rate_limit_window
-            while bucket and bucket[0] < cutoff:
-                bucket.pop(0)
-            if len(bucket) >= rate_limit_max:
-                return JSONResponse(
-                    status_code=429,
-                    content={"error": "rate_limited", "detail": "too many MCP requests"},
-                )
-            bucket.append(now)
-        return await call_next(request)
+    app.add_middleware(
+        _MessagesRateLimitMiddleware,
+        window=rate_limit_window,
+        max_requests=rate_limit_max,
+    )
 
     class IngestRequest(BaseModel):
         text: str
