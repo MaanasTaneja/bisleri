@@ -1,9 +1,11 @@
 import argparse
+import asyncio
 import base64
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from mcp_server.access_log import AccessLogger
 from mcp_server.auth import AuthError, TokenAuth
@@ -35,6 +37,8 @@ def create_app(config: ServerConfig):
     tools = build_tools(config)
     auth = TokenAuth(config.token)
     app = FastAPI(title="ContextKit Local MCP Server")
+    screenshot_jobs: dict[str, dict[str, Any]] = {}
+    active_screenshot_job_id: str | None = None
 
     class IngestRequest(BaseModel):
         text: str
@@ -55,16 +59,7 @@ def create_app(config: ServerConfig):
         except AuthError as exc:
             raise HTTPException(status_code=401, detail=str(exc)) from exc
 
-    @app.get("/health")
-    def health() -> dict[str, Any]:
-        return {"ok": True, "service": "contextkit", "port": config.port, "memory": tools.memory_status()}
-
-    @app.post("/ingest", dependencies=[Depends(require_auth)])
-    def ingest(request: IngestRequest = Body(...)) -> dict[str, Any]:
-        return tools.ingest(request.text, request.collection, request.metadata)
-
-    @app.post("/ingest_screenshot", dependencies=[Depends(require_auth)])
-    async def ingest_screenshot(request: ScreenshotIngestRequest = Body(...)) -> dict[str, Any]:
+    async def process_screenshot_request(request: ScreenshotIngestRequest) -> dict[str, Any]:
         if request.mime_type not in SUPPORTED_IMAGE_TYPES:
             raise HTTPException(status_code=422, detail=f"unsupported image type: {request.mime_type}")
         try:
@@ -96,6 +91,72 @@ def create_app(config: ServerConfig):
             }
         )
         return tools.ingest(result.text, result.collection, metadata)
+
+    async def run_screenshot_job(job_id: str, request: ScreenshotIngestRequest) -> None:
+        nonlocal active_screenshot_job_id
+        try:
+            result = await process_screenshot_request(request)
+        except HTTPException as exc:
+            screenshot_jobs[job_id].update(
+                {
+                    "status": "failed",
+                    "error": str(exc.detail),
+                    "status_code": exc.status_code,
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+        except Exception as exc:
+            logger.exception("Screenshot job %s failed", job_id)
+            screenshot_jobs[job_id].update(
+                {
+                    "status": "failed",
+                    "error": str(exc),
+                    "status_code": 500,
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+        else:
+            screenshot_jobs[job_id].update(
+                {
+                    "status": "completed",
+                    "result": result,
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+        finally:
+            if active_screenshot_job_id == job_id:
+                active_screenshot_job_id = None
+
+    @app.get("/health")
+    def health() -> dict[str, Any]:
+        return {"ok": True, "service": "contextkit", "port": config.port, "memory": tools.memory_status()}
+
+    @app.post("/ingest", dependencies=[Depends(require_auth)])
+    def ingest(request: IngestRequest = Body(...)) -> dict[str, Any]:
+        return tools.ingest(request.text, request.collection, request.metadata)
+
+    @app.post("/ingest_screenshot", dependencies=[Depends(require_auth)])
+    async def ingest_screenshot(request: ScreenshotIngestRequest = Body(...)) -> dict[str, Any]:
+        return await process_screenshot_request(request)
+
+    @app.post("/screenshot_jobs", dependencies=[Depends(require_auth)], status_code=202)
+    async def create_screenshot_job(request: ScreenshotIngestRequest = Body(...)) -> dict[str, Any]:
+        nonlocal active_screenshot_job_id
+        if active_screenshot_job_id:
+            raise HTTPException(status_code=409, detail="screenshot processing already in progress")
+        job_id = uuid4().hex
+        now = datetime.now(timezone.utc).isoformat()
+        screenshot_jobs[job_id] = {"id": job_id, "status": "processing", "created_at": now}
+        active_screenshot_job_id = job_id
+        asyncio.create_task(run_screenshot_job(job_id, request))
+        return screenshot_jobs[job_id]
+
+    @app.get("/screenshot_jobs/{job_id}", dependencies=[Depends(require_auth)])
+    def screenshot_job(job_id: str) -> dict[str, Any]:
+        job = screenshot_jobs.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="unknown screenshot job")
+        return job
 
     @app.post("/tools/{tool_name}", dependencies=[Depends(require_auth)])
     def call_tool(tool_name: str, request: ToolRequest = Body(...)) -> Any:

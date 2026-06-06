@@ -143,6 +143,45 @@ def test_ingest_screenshot_runs_python_ocr_and_routes_collection(monkeypatch, tm
     assert (tmp_path / "screenshots").exists()
 
 
+def test_screenshot_job_can_be_polled_until_completed(monkeypatch, tmp_path):
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    async def fake_process(self, image_base64: str, mime_type: str):
+        assert mime_type == "image/png"
+        return OCRResult(
+            text="Browser screenshot shows docs for polling",
+            collection="browser",
+            summary="Polling docs screenshot",
+        )
+
+    monkeypatch.setattr("mcp_server.main.OCRProcessor.process", fake_process)
+    app = create_app(ServerConfig(home=tmp_path, token="http-token"))
+    client = TestClient(app)
+
+    created = client.post(
+        "/screenshot_jobs",
+        headers={"Authorization": "Bearer http-token"},
+        json={"image_base64": base64.b64encode(PNG_1X1).decode("ascii"), "mime_type": "image/png"},
+    )
+
+    assert created.status_code == 202
+    body = created.json()
+    assert body["status"] == "processing"
+
+    for _ in range(20):
+        polled = client.get(f"/screenshot_jobs/{body['id']}", headers={"Authorization": "Bearer http-token"})
+        assert polled.status_code == 200
+        job = polled.json()
+        if job["status"] == "completed":
+            break
+    else:
+        pytest.fail("screenshot job did not complete")
+
+    assert job["result"]["collection"] == "browser"
+    assert job["result"]["metadata"]["summary"] == "Polling docs screenshot"
+
+
 def test_ingest_screenshot_requires_openai_key(monkeypatch, tmp_path):
     pytest.importorskip("fastapi")
     from fastapi.testclient import TestClient
