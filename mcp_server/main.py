@@ -82,8 +82,9 @@ def create_app(config: ServerConfig):
             result = await OCRProcessor().process(normalized_base64, normalized.base64_mime_type)
         except OCRConfigurationError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.warning("Screenshot OCR failed after image was accepted; storing fallback memory: %s", exc)
+            result = OCRProcessor.fallback_result(f"Screenshot captured, but OCR failed: {exc}")
 
         metadata = dict(request.metadata)
         metadata.update(

@@ -162,6 +162,30 @@ def test_ingest_screenshot_requires_openai_key(monkeypatch, tmp_path):
     assert response.json()["detail"] == "OPENAI_API_KEY is not set"
 
 
+def test_ingest_screenshot_stores_fallback_when_ocr_parse_fails(monkeypatch, tmp_path):
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    async def fake_process(self, image_base64: str, mime_type: str):
+        raise ValueError("OpenAI OCR response did not include output text")
+
+    monkeypatch.setattr("mcp_server.main.OCRProcessor.process", fake_process)
+    app = create_app(ServerConfig(home=tmp_path, token="http-token"))
+    client = TestClient(app)
+
+    response = client.post(
+        "/ingest_screenshot",
+        headers={"Authorization": "Bearer http-token"},
+        json={"image_base64": base64.b64encode(PNG_1X1).decode("ascii"), "mime_type": "image/png"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["collection"] == "misc"
+    assert "OCR failed" in body["text"]
+    assert body["metadata"]["screenshot_path"].endswith(".png")
+
+
 def test_ingest_screenshot_rejects_undecodable_image(tmp_path):
     pytest.importorskip("fastapi")
     from fastapi.testclient import TestClient
@@ -201,6 +225,15 @@ def test_ocr_parser_falls_back_to_misc_for_plain_text(caplog):
     assert result.collection == "misc"
     assert result.text == "The screenshot shows a terminal error."
     assert "OpenAI OCR response was not JSON" in caplog.text
+
+
+def test_ocr_parser_falls_back_when_output_text_missing(caplog):
+    with caplog.at_level("WARNING"):
+        result = OCRProcessor._parse_response({"output": [{"content": []}]})
+
+    assert result.collection == "misc"
+    assert "returned no OCR text" in result.text
+    assert "did not include output text" in caplog.text
 
 
 def test_chroma_store_creates_and_routes_required_collections(monkeypatch, tmp_path):

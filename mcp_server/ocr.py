@@ -69,10 +69,15 @@ class OCRProcessor:
         return self._parse_response(response.json())
 
     @staticmethod
+    def fallback_result(message: str) -> OCRResult:
+        return OCRResult(text=message, collection="misc", summary=message[:180])
+
+    @staticmethod
     def _parse_response(payload: dict[str, Any]) -> OCRResult:
         raw_text = payload.get("output_text") or OCRProcessor._extract_output_text(payload)
         if not raw_text:
-            raise ValueError("OpenAI OCR response did not include output text")
+            logger.warning("OpenAI OCR response did not include output text; storing response summary as misc")
+            return OCRProcessor.fallback_result("Screenshot captured, but OpenAI returned no OCR text.")
         try:
             parsed = json.loads(OCRProcessor._json_candidate(raw_text))
         except json.JSONDecodeError:
@@ -104,6 +109,8 @@ class OCRProcessor:
         parts: list[str] = []
         for item in payload.get("output", []):
             for content in item.get("content", []):
-                if content.get("type") == "output_text" and content.get("text"):
+                if content.get("text"):
                     parts.append(str(content["text"]))
+                elif content.get("type") == "text" and content.get("value"):
+                    parts.append(str(content["value"]))
         return "\n".join(parts)
