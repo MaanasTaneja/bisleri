@@ -1,4 +1,5 @@
 import argparse
+import logging
 from typing import Any
 
 from mcp_server.access_log import AccessLogger
@@ -7,12 +8,16 @@ from mcp_server.config import ServerConfig
 from mcp_server.memory.chroma_store import create_store
 from mcp_server.tools import ContextKitTools
 
+logger = logging.getLogger(__name__)
+
 
 def build_tools(config: ServerConfig) -> ContextKitTools:
     config.prepare()
     store = create_store(config.db_path, config.use_chroma, config.chroma_path)
     access_logger = AccessLogger(config.db_path)
-    return ContextKitTools(config, store, access_logger)
+    tools = ContextKitTools(config, store, access_logger)
+    logger.info("ContextKit server memory status: %s", tools.memory_status())
+    return tools
 
 
 def create_app(config: ServerConfig):
@@ -42,7 +47,7 @@ def create_app(config: ServerConfig):
 
     @app.get("/health")
     def health() -> dict[str, Any]:
-        return {"ok": True, "service": "contextkit", "port": config.port}
+        return {"ok": True, "service": "contextkit", "port": config.port, "memory": tools.memory_status()}
 
     @app.post("/ingest", dependencies=[Depends(require_auth)])
     def ingest(request: IngestRequest = Body(...)) -> dict[str, Any]:
@@ -66,6 +71,7 @@ def create_app(config: ServerConfig):
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser(description="Run the ContextKit local MCP server.")
     parser.add_argument("--port", type=int)
     parser.add_argument("--token")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
 import uuid
@@ -11,6 +12,8 @@ from typing import Any
 
 from mcp_server.config import COLLECTIONS
 from mcp_server.memory.embedder import HashEmbedder, cosine
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -27,7 +30,11 @@ class SQLiteMemoryStore:
     def __init__(self, db_path: Path, embedder: HashEmbedder | None = None) -> None:
         self.db_path = db_path
         self.embedder = embedder or HashEmbedder()
+        self.backend = "sqlite"
+        self.mode = "fallback"
+        self.location = str(db_path)
         self._init()
+        logger.info("ContextKit memory store: SQLite fallback active at %s", db_path)
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.db_path)
@@ -137,16 +144,28 @@ class ChromaMemoryStore:
         host = os.environ.get("CONTEXTKIT_CHROMA_HOST")
         port = os.environ.get("CONTEXTKIT_CHROMA_PORT", "8000")
         if host:
+            self.mode = "http"
+            self.location = f"{host}:{port}"
+            logger.info("ContextKit memory store: connecting to Chroma HTTP server at %s", self.location)
             self.client = chromadb.HttpClient(host=host, port=int(port))
         else:
+            self.mode = "embedded"
+            self.location = str(path.expanduser())
+            logger.info("ContextKit memory store: starting embedded Chroma at %s", self.location)
             self.client = chromadb.PersistentClient(path=str(path.expanduser()))
-        self.collections = {
-            name: self.client.get_or_create_collection(
+        self.backend = "chroma"
+        self.collections = {}
+        for name in COLLECTIONS:
+            self.collections[name] = self.client.get_or_create_collection(
                 name=name,
                 metadata={"hnsw:space": "cosine", "contextkit_collection": name},
             )
-            for name in COLLECTIONS
-        }
+            logger.info("ContextKit memory store: Chroma collection ready: %s", name)
+        logger.info(
+            "ContextKit memory store: Chroma is working in %s mode with collections: %s",
+            self.mode,
+            ", ".join(self.collections),
+        )
 
     def add(self, text: str, collection: str = "misc", metadata: dict[str, Any] | None = None) -> MemoryDocument:
         collection = normalize_collection(collection)
@@ -251,6 +270,8 @@ def create_store(
     if use_chroma:
         try:
             return ChromaMemoryStore(chroma_path or db_path.parent / "chroma")
-        except RuntimeError:
-            pass
+        except Exception as exc:
+            logger.warning("ContextKit memory store: Chroma unavailable, falling back to SQLite: %s", exc)
+    else:
+        logger.info("ContextKit memory store: Chroma disabled by CONTEXTKIT_USE_CHROMA=0")
     return SQLiteMemoryStore(db_path)

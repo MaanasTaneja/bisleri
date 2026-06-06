@@ -9,7 +9,7 @@ import pytest
 from mcp_server.auth import AuthError, TokenAuth
 from mcp_server.config import COLLECTIONS, ServerConfig
 from mcp_server.main import build_tools, create_app
-from mcp_server.memory.chroma_store import ChromaMemoryStore
+from mcp_server.memory.chroma_store import ChromaMemoryStore, create_store
 
 
 @pytest.fixture()
@@ -80,7 +80,9 @@ def test_http_app_health_and_auth(tmp_path):
     app = create_app(ServerConfig(home=tmp_path, token="http-token"))
     client = TestClient(app)
 
-    assert client.get("/health").json()["ok"] is True
+    health = client.get("/health").json()
+    assert health["ok"] is True
+    assert health["memory"]["collections"] == list(COLLECTIONS)
     assert client.post("/ingest", json={"text": "blocked"}).status_code == 401
     response = client.post(
         "/ingest",
@@ -124,6 +126,36 @@ def test_chroma_store_creates_and_routes_required_collections(monkeypatch, tmp_p
     assert created["messages"].metadatas[0]["collection"] == "messages"
     assert created["filesystem"].metadatas[0]["path"] == "/tmp/lease.pdf"
     assert created["misc"].metadatas[0]["collection"] == "misc"
+
+
+def test_chroma_store_logs_ready_collections(monkeypatch, tmp_path, caplog):
+    class FakePersistentClient:
+        def __init__(self, path: str):
+            self.path = path
+
+        def get_or_create_collection(self, name: str, metadata: dict):
+            return FakeChromaCollection(name, metadata)
+
+    monkeypatch.setitem(sys.modules, "chromadb", SimpleNamespace(PersistentClient=FakePersistentClient))
+
+    with caplog.at_level("INFO"):
+        store = ChromaMemoryStore(tmp_path / "chroma")
+
+    assert store.backend == "chroma"
+    assert store.mode == "embedded"
+    assert "Chroma is working in embedded mode" in caplog.text
+    for collection in COLLECTIONS:
+        assert f"Chroma collection ready: {collection}" in caplog.text
+
+
+def test_create_store_logs_sqlite_fallback(monkeypatch, tmp_path, caplog):
+    monkeypatch.setitem(sys.modules, "chromadb", None)
+
+    with caplog.at_level("INFO"):
+        store = create_store(tmp_path / "contextkit.sqlite3", use_chroma=True, chroma_path=tmp_path / "chroma")
+
+    assert store.backend == "sqlite"
+    assert "Chroma unavailable, falling back to SQLite" in caplog.text
 
 
 class FakeChromaCollection:
