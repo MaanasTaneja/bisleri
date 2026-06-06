@@ -31,11 +31,20 @@ class MemorySharingFlag:
 _TOOL_SPECS: list[dict[str, Any]] = [
     {
         "name": "search_memory",
-        "description": "Semantic search across all enabled memory collections.",
+        "description": (
+            "Search the user's personal ContextKit memory (their files, "
+            "clipboard, screenshots, browser captures, and notes). "
+            "ALWAYS call this before answering any question that touches "
+            "the user's own files, preferences, prior conversations, work "
+            "history, or anything they may have captured locally. Examples: "
+            "'what was that PDF about', 'what did I save earlier', "
+            "'find my notes on X', 'what's my address', 'when did I last "
+            "look at Y'. Cheap to call — when in doubt, search first."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "The query text."},
+                "query": {"type": "string", "description": "Natural-language search query."},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10},
             },
             "required": ["query"],
@@ -43,7 +52,11 @@ _TOOL_SPECS: list[dict[str, Any]] = [
     },
     {
         "name": "get_memory_item",
-        "description": "Fetch a single memory item by id.",
+        "description": (
+            "Fetch the full text and metadata of a single memory item by id, "
+            "typically after search_memory returns a match the user wants to "
+            "drill into."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {"id": {"type": "string"}},
@@ -52,7 +65,13 @@ _TOOL_SPECS: list[dict[str, Any]] = [
     },
     {
         "name": "save_memory",
-        "description": "Save a piece of text to the misc memory collection.",
+        "description": (
+            "Save text to the user's ContextKit memory so they can recall it "
+            "later. Use proactively — whenever the user shares a preference, "
+            "fact about themselves, decision, or anything they may want to "
+            "find later ('remember that...', 'note that...', 'I prefer...', "
+            "'my X is Y'), call this without asking permission."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -64,12 +83,22 @@ _TOOL_SPECS: list[dict[str, Any]] = [
     },
     {
         "name": "list_sources",
-        "description": "List the user's allowed folders and active memory collections.",
+        "description": (
+            "List which folders ContextKit is allowed to index and which "
+            "memory collections exist (filesystem, messages, browser, misc, "
+            "and any custom). Call when the user asks 'what can you see', "
+            "'what memory do I have', or before suggesting a search scope."
+        ),
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
         "name": "get_recent_context",
-        "description": "Return memory items from a recent time window.",
+        "description": (
+            "Return everything the user captured in a recent time window. "
+            "Call when the user asks 'what was I doing', 'catch me up', "
+            "'what did I save today', 'recent activity', or to ground an "
+            "answer in their most recent context."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -84,7 +113,10 @@ _TOOL_SPECS: list[dict[str, Any]] = [
     },
     {
         "name": "delete_memory",
-        "description": "Delete a memory item by id.",
+        "description": (
+            "Delete a memory item by id. Only call when the user explicitly "
+            "asks to forget, delete, or remove something."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {"id": {"type": "string"}},
@@ -93,7 +125,11 @@ _TOOL_SPECS: list[dict[str, Any]] = [
     },
     {
         "name": "pause_memory_sharing",
-        "description": "Pause or resume MCP tool access to the user's memory.",
+        "description": (
+            "Toggle ContextKit's memory access on or off. Call when the user "
+            "asks for privacy, says 'don't read my memory', or wants to "
+            "resume sharing."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {"paused": {"type": "boolean"}},
@@ -162,7 +198,19 @@ def mount_mcp_sse(app, tools: ContextKitTools, flag: MemorySharingFlag) -> None:
         logger.warning("mcp SDK not installed; /sse and /messages/ disabled: %s", exc)
         return
 
-    server = Server("contextkit")
+    instructions = (
+        "ContextKit is the user's local, private memory: their files, "
+        "clipboard, screenshots, browser captures, and notes. When the "
+        "user asks anything about their own data, preferences, prior "
+        "context, recent activity, or wants to remember/recall something, "
+        "use the ContextKit tools (search_memory, get_recent_context, "
+        "save_memory, list_sources) BEFORE answering from general "
+        "knowledge. Be proactive: search first, ask second."
+    )
+    try:
+        server = Server("contextkit", instructions=instructions)
+    except TypeError:
+        server = Server("contextkit")
 
     @server.list_tools()
     async def _list_tools() -> list[Tool]:
