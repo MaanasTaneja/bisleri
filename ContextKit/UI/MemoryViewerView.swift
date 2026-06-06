@@ -49,6 +49,10 @@ struct MemoryViewerView: View {
                     onSelect: { name in
                         selectedCollection = name
                         selectedItem = nil
+                    },
+                    onCenterTap: {
+                        selectedCollection = nil
+                        selectedItem = nil
                     }
                 )
             }
@@ -260,6 +264,7 @@ private struct GraphCanvas: View {
     let selected: String?
     let size: CGSize
     let onSelect: (String) -> Void
+    let onCenterTap: () -> Void
 
     var body: some View {
         let center = CGPoint(x: size.width / 2, y: size.height / 2)
@@ -271,8 +276,10 @@ private struct GraphCanvas: View {
                 ConnectionLine(from: center, to: position, isActive: selected == name)
             }
 
-            CenterNode()
+            CenterNode(isActive: selected != nil)
                 .position(center)
+                .onTapGesture { onCenterTap() }
+                .help("Back to collections overview")
 
             ForEach(Array(collections.enumerated()), id: \.element) { index, name in
                 let position = nodePosition(index: index, total: collections.count, center: center, radius: radius)
@@ -314,13 +321,15 @@ private struct ConnectionLine: View {
 }
 
 private struct CenterNode: View {
+    var isActive: Bool = false
+
     var body: some View {
         ZStack {
             Circle()
-                .fill(Color.accentColor.opacity(0.18))
+                .fill(Color.accentColor.opacity(isActive ? 0.28 : 0.18))
                 .frame(width: 110, height: 110)
             Circle()
-                .stroke(Color.accentColor, lineWidth: 2)
+                .stroke(Color.accentColor, lineWidth: isActive ? 3 : 2)
                 .frame(width: 84, height: 84)
             VStack(spacing: 2) {
                 Image(systemName: "brain.head.profile")
@@ -330,6 +339,7 @@ private struct CenterNode: View {
                     .font(.caption.weight(.semibold))
             }
         }
+        .contentShape(Circle())
     }
 }
 
